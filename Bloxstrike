@@ -1,7 +1,11 @@
--- BLOXSTRIKE CLIENT 1.5 / regular Matcha / complete standalone script
+-- BLOXSTRIKE CLIENT 1.6.4 TEST / regular Matcha / complete standalone script
 -- RIGHT SHIFT opens the panel. All feature toggles/actions use panel buttons.
 -- Menu-selectable held or automatic mouse aim test. No visibility check or firing.
 local CONFIG={
+    RCSXStrength=0,RCSYStrength=0,RCSStrengthModel=true,
+    SeparateADS=true,ADSDetection="Native",TargetPriority="Crosshair",
+    ADSAimAcquireRadius=60,ADSAimTrackRadius=100,ADSAimSmoothTime=.25,ADSAimGain=.5,ADSAimMaxStep=3,ADSAimMaxPixelsPerSecond=120,
+    HealthBars=true,NumericHP=true,
     RCSEnabled=false, RCSProfileAllowed=false, RCSVertical=.14, RCSHorizontal=0, RCSReturnTime=.10, RCSBuildUp=.02, RCSBuildRecovery=.25,
     RCSYawPerUnit=-.08999994, RCSPitchPerUnit=-.06930002, RCSFOV=70,
     Enabled=true, Boxes=true, Tracers=true, Labels=true, Distances=true, EnemiesOnly=true,
@@ -13,7 +17,7 @@ local CONFIG={
     Chams=false, ChamsOpacity=.30, ChamsHz=20, ChamsMaxTargets=8,
     UseWeaponProfiles=true, ProfileAimAllowed=true, WeaponInterval=.15,
     RosterInterval=.75, MaxPlayers=48, MaxDiscoveryModels=256, PlaceId=114234929420007, GameId=7633926880,
-    SettingsPath="bloxstrike/client_settings.json", AimCircleSegments=96,
+    SettingsPath="bloxstrike/test16/client_settings.json", AimCircleSegments=96,
     AimMaxStep=3, AimMaxPixelsPerSecond=120, AimDeadzone=2, AimMaxDistance=1000,
     AimMotionLead=.06, AimAcquireBoost=1.5, AimShowFOV=true, AimInvertX=false, AimInvertY=false,
     UpdateHz=60, CacheInterval=.15, MaxTargets=64, MaxDistance=0,
@@ -22,7 +26,7 @@ local CONFIG={
     MaxBodySpan=12, MaxPartSize=8, Padding=2, MinimumBoxHeight=14, MinimumBoxWidth=8,
     IgnoreModels={}, Duration=0, ReportInterval=0,
     MenuKey=0xA1,
-    ReportPath="bloxstrike/client_report.txt",
+    ReportPath="bloxstrike/test16/client_report.txt",
 }
 for _,key in ipairs({"BloxStrikeClient","KontraESP"}) do
     local old=_G[key]
@@ -98,13 +102,15 @@ local stats={frames=0,renders=0,refreshes=0,cacheFailures=0,frameErrors=0,drawEr
     bodyReads=0,minimumMarkers=0,partialMarkers=0,extremePositions=0,
     skeletonReads=0,skeletonProjections=0,skeletonUpdates=0,skeletonSegments=0,headDots=0,maxObservedDistance=0,farthestRendered=0}
 C.Stats=stats
+local V={healthDraws=0,hpDraws=0,full=0,reduced=0}
+C.Tactical=V
 local log,drawings,props,slots,entries={},{},{},{},{}
 local entryMap={}
 local nextLocalState=0
 local keys,world,root,camera,localCharacter={}
 local lastRefresh,lastReport=-math.huge,started
 local purple,gray,pale,background,ink
-local ui={x=28,y=28,w=420,h=456,row=1,objects={},mouse=nil,nextMouse=0,wasDown=false,dirty=true,layout={},sliderIDs={}}
+local ui={x=28,y=28,w=420,h=456,notice="",row=1,objects={},mouse=nil,nextMouse=0,wasDown=false,dirty=true,layout={},sliderIDs={}}
 C.UI=ui
 local features={square=true,line=true,text=true,circle=true}
 local function event(s)
@@ -168,7 +174,7 @@ local function removeAll()
 end
 local function report(copy)
     local elapsed=math.max(.001,(C.StoppedAt or clock())-started)
-    local rows={"========== BLOXSTRIKE CLIENT 1.5 ==========",
+    local rows={"========== BLOXSTRIKE CLIENT 1.6.4 TEST ==========",
         "State="..C.State.." running="..tostring(C.Running).." enabled="..tostring(C.Enabled).." menu="..tostring(C.MenuOpen),
         "PlaceId="..str(get(game,"PlaceId")).." GameId="..str(get(game,"GameId")).." identity="..str(C.IdentityCheck),
         string.format("Elapsed=%.2fs frames=%d loops/sec=%.2f current/max visible=%d/%d cached=%d",elapsed,stats.frames,stats.frames/elapsed,stats.visible,stats.maxVisible,stats.cached),
@@ -201,6 +207,14 @@ local function report(copy)
             rows[#rows+1]=string.format("PROFILE %s allowed=%s point=%s acquire/track=%g/%g smooth=%.3f gain=%.3f step=%g",name,tostring(p.ProfileAimAllowed),p.AimPoint,p.AimAcquireRadius,p.AimTrackRadius,p.AimSmoothTime,p.AimGain,p.AimMaxStep)
         end
     end
+    rows[#rows+1]="-- TEST FEATURES --"
+    rows[#rows+1]="Aim mode="..(P and P.Mode or "Hip").." known="..tostring(P and P.ModeKnown).." source="..str(P and P.ModeSource).." editing="..str(P and P.EditMode).." applied="..str(P and P.AppliedMode).." transitions="..str(P and P.modeChanges).." priority="..cfg.TargetPriority
+    rows[#rows+1]="Scoped weapon eligibility="..tostring(P and P.scopeAllowed(P.Current)).." known/equipped="..str(P and P.Current).." editingEligible="..tostring(P and P.scopeAllowed(P.Editing))
+    rows[#rows+1]=string.format("Visual projection=%s errorPx=%s checks=%d fast projections=%d pose refreshes=%d stage ms totals geometry/draw=%.2f/%.2f",str(V.projectionStatus),str(V.projectionError),V.projectionChecks or 0,V.fastProjections or 0,V.poseRefreshes or 0,V.geometryMs or 0,V.drawMs or 0)
+    rows[#rows+1]="Separate ADS="..tostring(cfg.SeparateADS).." detection="..cfg.ADSDetection.." test settings="..cfg.SettingsPath.." import="..str(C.SettingsImportedFrom)
+    if P then for _,name in ipairs(P.Names) do local p=P.Profiles[name];rows[#rows+1]=string.format("MODE PROFILE %s separate=%s Hip FOV=%g/%g smooth=%.3f gain=%.2f ADS FOV=%g/%g smooth=%.3f gain=%.2f",name,tostring(p.SeparateADS),p.AimAcquireRadius,p.AimTrackRadius,p.AimSmoothTime,p.AimGain,p.ADSAimAcquireRadius,p.ADSAimTrackRadius,p.ADSAimSmoothTime,p.ADSAimGain) end end
+    rows[#rows+1]=string.format("Health bars/HP draws=%d/%d",V.healthDraws,V.hpDraws)
+    rows[#rows+1]="Priority changes only new locks. Health bars require a readable maximum; numeric HP is independent of name labels. Native scope detection is IsSniperScoped; RMB mode is an explicit input proxy, not scope proof."
     R.AppendReport(rows,copy)
     rows[#rows+1]="-- VISUALS --"
     rows[#rows+1]=string.format("Boxes=%s tracers=%s skeleton=%s %gHz dot=%s %gpx chams=%s %gHz opacity=%.2f",tostring(cfg.Boxes),tostring(cfg.Tracers),tostring(cfg.Skeleton),cfg.SkeletonHz,tostring(cfg.HeadDot),cfg.HeadDotRadius,tostring(cfg.Chams),cfg.ChamsHz,cfg.ChamsOpacity)
@@ -277,6 +291,8 @@ local function modelState(e)
     e.team=pt or mt
     e.health=attribute(model,"Health"); e.dead=attribute(model,"Dead")
     local ph=owner and attribute(owner,"Health"); local pd=owner and attribute(owner,"Dead")
+    if not finite(e.health) and finite(ph) then e.health=ph end
+    e.maxHealth=attribute(model,"MaxHealth");if not finite(e.maxHealth) and owner then e.maxHealth=attribute(owner,"MaxHealth") end
     e.presentation=attribute(model,"ClientCharacterPresentationVisible")
     e.bot=attribute(model,"Bot")==true; e.teamEvidence=owner and "Player/character attributes" or "Bot character attributes"
     if not liveParent(model) then return "outside live character folder" end
@@ -325,13 +341,13 @@ end
 local roster,player,rosterList,ownerMap,nextRoster=nil,nil,{},{},0
 local function refresh()
     local now=clock()
-    world=game:GetService("Workspace"); assert(world,"Workspace unavailable")
+    world=world or game:GetService("Workspace"); assert(world,"Workspace unavailable")
     if not root or not same(get(root,"Parent"),world) or get(root,"Name")~="Characters" then
         local nextRoot
         for _,obj in ipairs(children(world) or {}) do if get(obj,"Name")=="Characters" then nextRoot=obj; break end end
         root=nextRoot; entryMap={}; hideAll()
     end
-    roster=roster or game:GetService("Players"); player=get(roster,"LocalPlayer")
+    roster=roster or game:GetService("Players"); player=player or get(roster,"LocalPlayer")
     localCharacter=get(player,"Character")
     if now>=nextLocalState then
         nextLocalState=now+cfg.LocalStateInterval; C.LocalAimBlock=nil
@@ -373,10 +389,10 @@ local function refresh()
             local e=entryMap[key] or {model=model,key=key,name=str(get(model,"Name"),80),parts={},nextParts=0,nextTeam=0,firstSeen=now}
             local nextOwner=ownerMap[key]
             if not (same(e.owner,nextOwner) or (e.owner==nil and nextOwner==nil)) then e.nextTeam=0 end
+            if e.owner~=nextOwner or not e.label then e.label=nextOwner and str(get(nextOwner,"Name"),80) or ("BOT "..e.name) end
             e.owner=nextOwner
-            e.label=e.owner and str(get(e.owner,"Name"),80) or ("BOT "..e.name)
             if now>=e.nextTeam then
-                e.blocked=modelState(e); e.nextTeam=now+cfg.TeamInterval; stats.teamRefreshes=stats.teamRefreshes+1
+                e.blocked=modelState(e); e.nextTeam=now+((e.blocked=="presentation hidden or unavailable" and now-e.firstSeen<.6) and math.min(cfg.TeamInterval,cfg.CacheInterval) or cfg.TeamInterval); stats.teamRefreshes=stats.teamRefreshes+1
             elseif e.owner and not same(get(e.owner,"Character"),model) then e.blocked="owner character reference changed" end
             if not e.blocked and now>=e.nextParts then
                 e.parts=collect(model,children(model) or {}); e.renderParts=selectRenderParts(e.parts)
@@ -477,35 +493,107 @@ local function readBodyPosition(e,part)
     local read,parent,value=pcall(function() return part.obj.Parent,part.obj.Position end)
     if read and same(parent,e.model) then
         local pos=xyz(value)
-        if pos then return pos end
+        if pos then if e.framePositions then e.framePositions[part.name]=pos end;return pos end
         stats.badPositions=stats.badPositions+1
     else stats.stale=stats.stale+1; e.nextParts=0 end
 end
+-- One camera snapshot per update. Visual projection falls back to Matcha when
+-- fixed world-point comparisons disagree; aim always uses native projection.
+function V.projectFrame(now,origin,vw,vh)
+    local before=clock()
+    local ok,m=pcall(function() return {camera.CFrame:GetComponents()} end)
+    local fov=get(camera,"FieldOfView")
+    if not ok or #m~=12 or not finite(fov) or fov<2 or fov>175 then V.frameData=nil;V.fast=false;V.projectionStatus="camera unavailable; native fallback";return end
+    for i=1,12 do if not finite(m[i]) then V.frameData=nil;V.fast=false;return end end
+    local key=id(camera)
+    if key~=V.cameraKey or vw~=V.width or vh~=V.height or not V.fov or math.abs(fov-V.fov)>.05 then V.nextProjection=0;V.fast=false end
+    V.cameraKey=key;V.width=vw;V.height=vh;V.fov=fov
+    V.frameData={m=m,w=vw,h=vh,focal=vh*.5/math.tan(math.rad(fov)*.5)}
+    if now>=(V.nextProjection or 0) then
+        V.nextProjection=now+.5;local valid=true;local error=0
+        for _,q in ipairs({{4,2,80},{-6,-3,100}}) do
+            local p={m[1]+m[4]*q[1]+m[5]*q[2]-m[6]*q[3],m[2]+m[7]*q[1]+m[8]*q[2]-m[9]*q[3],m[3]+m[10]*q[1]+m[11]*q[2]-m[12]*q[3]}
+            local ax,ay=project(p[1],p[2],p[3]);local bx,by=V.localProject(p[1],p[2],p[3])
+            V.projectionChecks=(V.projectionChecks or 0)+1
+            if not ax or not bx then valid=false
+            else local d=math.sqrt((ax-bx)^2+(ay-by)^2);error=math.max(error,d);if d>3 then valid=false end end
+        end
+        V.fast=valid;V.projectionError=error
+        V.projectionStatus=valid and "validated visual projection" or "projection mismatch; native fallback"
+    end
+    V.projectionMs=(V.projectionMs or 0)+(clock()-before)*1000
+end
+function V.localProject(x,y,z)
+    local frame=V.frameData;if not frame then return nil end
+    local m=frame.m;local dx,dy,dz=x-m[1],y-m[2],z-m[3]
+    local depth=-(dx*m[6]+dy*m[9]+dz*m[12]);if depth<=.01 then return nil end
+    local sx=frame.w*.5+(dx*m[4]+dy*m[7]+dz*m[10])*frame.focal/depth
+    local sy=frame.h*.5-(dx*m[5]+dy*m[8]+dz*m[11])*frame.focal/depth
+    if finite(sx) and finite(sy) and sx>=0 and sy>=0 and sx<=frame.w and sy<=frame.h then return sx,sy end
+end
+function V.project(x,y,z)
+    if V.fast and V.frameData then V.fastProjections=(V.fastProjections or 0)+1;return V.localProject(x,y,z) end
+    return project(x,y,z)
+end
+function V.positions(e,now)
+    local parts=cfg.DetailedBounds and e.parts or e.renderParts or e.parts
+    local result={};local anchorPart=parts[1]
+    if not anchorPart then return result end
+    local anchor=readBodyPosition(e,anchorPart);if not anchor then e.poseOffsets=nil;return result end
+    local refresh=cfg.DetailedBounds or not e.poseOffsets or e.posePart~=anchorPart.obj or now>=(e.nextPose or 0)
+    if e.poseAnchor and math.sqrt((anchor[1]-e.poseAnchor[1])^2+(anchor[2]-e.poseAnchor[2])^2+(anchor[3]-e.poseAnchor[3])^2)>25 then refresh=true end
+    if refresh then
+        e.poseOffsets={};e.posePart=anchorPart.obj;e.nextPose=now+(e.key==A.selected and 1/20 or 1/10)
+        V.poseRefreshes=(V.poseRefreshes or 0)+1
+    end
+    e.poseAnchor=anchor
+    for _,part in ipairs(parts) do
+        local p
+        if part==anchorPart then p=anchor
+        elseif refresh then
+            p=readBodyPosition(e,part)
+            if p and math.max(math.abs(p[1]-anchor[1]),math.abs(p[2]-anchor[2]),math.abs(p[3]-anchor[3]))<=cfg.MaxBodySpan then
+                e.poseOffsets[part.name]={p[1]-anchor[1],p[2]-anchor[2],p[3]-anchor[3]}
+            else p=nil end
+        else
+            local offset=e.poseOffsets[part.name]
+            if offset then p={anchor[1]+offset[1],anchor[2]+offset[2],anchor[3]+offset[3]} end
+        end
+        if p then result[#result+1]={pos=p,part=part} end
+    end
+    return result
+end
+function V.healthColor(ratio)
+    V.healthColors=V.healthColors or {};local bucket=math.floor(clamp(ratio,0,1)*20+.5)
+    if not V.healthColors[bucket] then
+        local r=bucket/20;V.healthColors[bucket]=Color3.fromRGB(math.floor(235*(1-r)),math.floor(105+130*r),100)
+    end
+    return V.healthColors[bucket]
+end
+
 local function geometry(e,camPos,vw,vh)
-    e.lastBox=nil; e.distance=nil; e.anchorName=nil; e.framePositions={}; e.headScreen=nil
-    if e.blocked or not liveParent(e.model) or (e.owner and not same(get(e.owner,"Character"),e.model)) then e.state=e.blocked or "model/owner left live Characters"; stats.stale=stats.stale+1; return nil end
+    e.tacticalPos=nil;e.lastBox=nil; e.distance=nil; e.anchorName=nil; e.framePositions={}; e.headScreen=nil
+    if e.blocked then e.state=e.blocked;stats.stale=stats.stale+1;return nil end
     if cfg.EnemiesOnly then
         if not C.LocalTeam then e.state="hidden: local team unavailable or spectator"; stats.localTeamSkips=stats.localTeamSkips+1; return nil end
         if not e.team then e.state="hidden: unknown/conflicting team"; stats.unknownSkips=stats.unknownSkips+1; return nil end
         if e.team==C.LocalTeam then e.state="hidden: teammate team"; stats.teammateSkips=stats.teammateSkips+1; return nil end
     end
+    if not liveParent(e.model) or (e.owner and not same(get(e.owner,"Character"),e.model)) then e.state="model/owner left live Characters";stats.stale=stats.stale+1;return nil end
     local positions={}; local anchor
-    for _,part in ipairs(cfg.DetailedBounds and e.parts or e.renderParts or e.parts) do
-        local pos=readBodyPosition(e,part)
-        if pos then
-            positions[#positions+1]={pos=pos,part=part}; e.framePositions[part.name]=pos
-            if not anchor then
-                anchor=positions[#positions]; e.anchorName=part.name; e.lastAnchor=pos
-                e.distance=math.sqrt((pos[1]-camPos[1])^2+(pos[2]-camPos[2])^2+(pos[3]-camPos[3])^2)
-                stats.maxObservedDistance=math.max(stats.maxObservedDistance,e.distance)
-                if cfg.UnavailableDistance>0 and e.distance>cfg.UnavailableDistance then
-                    e.state="position unavailable: extreme-distance candidate"; stats.extremePositions=stats.extremePositions+1; return nil
-                end
-                if cfg.MaxDistance>0 and e.distance>cfg.MaxDistance then e.state="range"; stats.range=stats.range+1; return nil end
-            end
+    for _,sample in ipairs(V.positions(e,clock())) do
+        local part,pos=sample.part,sample.pos
+        positions[#positions+1]=sample;e.framePositions[part.name]=pos
+        if not anchor then
+            anchor=sample;e.anchorName=part.name;e.lastAnchor=pos
+            e.distance=math.sqrt((pos[1]-camPos[1])^2+(pos[2]-camPos[2])^2+(pos[3]-camPos[3])^2)
+            stats.maxObservedDistance=math.max(stats.maxObservedDistance,e.distance)
+            if cfg.UnavailableDistance>0 and e.distance>cfg.UnavailableDistance then e.state="position unavailable: extreme-distance candidate";stats.extremePositions=stats.extremePositions+1;return nil end
+            if cfg.MaxDistance>0 and e.distance>cfg.MaxDistance then e.state="range";stats.range=stats.range+1;return nil end
         end
     end
     if not anchor then e.state="no valid body parts"; return nil end
+    e.tacticalPos=anchor.pos
     local p=anchor.pos
     local b={math.huge,math.huge,math.huge,-math.huge,-math.huge,-math.huge}
     local accepted=0
@@ -521,15 +609,15 @@ local function geometry(e,camPos,vw,vh)
     local count=0
     if cfg.DetailedBounds then
         for _,x in ipairs({b[1],b[4]}) do for _,y in ipairs({b[2],b[5]}) do for _,z in ipairs({b[3],b[6]}) do
-            local sx,sy=project(x,y,z)
+            local sx,sy=V.project(x,y,z)
             if sx and sx>=0 and sy>=0 and sx<=vw and sy<=vh then
                 count=count+1; left=math.min(left,sx); right=math.max(right,sx); top=math.min(top,sy); bottom=math.max(bottom,sy)
             end
         end end end
     else
         local cx,cz=(b[1]+b[4])/2,(b[3]+b[6])/2
-        local tx,ty=project(cx,b[5],cz)
-        local bx,by=project(cx,b[2],cz)
+        local tx,ty=V.project(cx,b[5],cz)
+        local bx,by=V.project(cx,b[2],cz)
         if tx and bx then
             local height=math.abs(by-ty)
             local center=(tx+bx)/2
@@ -538,7 +626,7 @@ local function geometry(e,camPos,vw,vh)
             top,bottom=math.min(ty,by),math.max(ty,by); count=2
         else
             -- A real on-screen anchor can still mark a partially clipped body.
-            local ax,ay=project(p[1],p[2],p[3])
+            local ax,ay=V.project(p[1],p[2],p[3])
             if ax then
                 left,right=ax,ax; top,bottom=ay,ay; count=1
                 if tx then left=math.min(left,tx); right=math.max(right,tx); top=math.min(top,ty); bottom=math.max(bottom,ty) end
@@ -569,21 +657,32 @@ local bones={
     {"lowertorso","rightupperleg"},{"rightupperleg","rightlowerleg"},{"rightlowerleg","rightfoot"},
 }
 local function updateBones(e,now)
-    if not cfg.Skeleton then e.boneScreen=nil; e.nextBones=0; return end
-    if e.nextBones and now<e.nextBones and e.boneScreen then return end
-    e.nextBones=now+1/cfg.SkeletonHz; e.boneScreen={}; stats.skeletonUpdates=stats.skeletonUpdates+1
+    if not cfg.Skeleton then e.boneScreen=nil;e.boneOffsets=nil;e.nextBones=0;return end
     local anchor=e.framePositions[e.anchorName]
-    if not anchor then return end
-    for _,part in ipairs(e.parts) do
-        local pos=e.framePositions[part.name]
-        if not pos then stats.skeletonReads=stats.skeletonReads+1; pos=readBodyPosition(e,part) end
-        if pos and math.max(math.abs(pos[1]-anchor[1]),math.abs(pos[2]-anchor[2]),math.abs(pos[3]-anchor[3]))<=cfg.MaxBodySpan then
-            stats.skeletonProjections=stats.skeletonProjections+1
-            local x,y=project(pos[1],pos[2],pos[3])
-            if x then e.boneScreen[part.name]={x,y} end
+    if not anchor then e.boneScreen=nil;return end
+    local due=not e.boneOffsets or not e.nextBones or now>=e.nextBones or not e.boneScreen
+    if due then
+        e.nextBones=now+1/(e.key==A.selected and cfg.SkeletonHz or math.min(12,cfg.SkeletonHz))
+        e.boneOffsets={};V.bonePoseRefreshes=(V.bonePoseRefreshes or 0)+1
+        for _,part in ipairs(e.parts) do
+            local pos=e.framePositions[part.name]
+            if not pos then stats.skeletonReads=stats.skeletonReads+1;pos=readBodyPosition(e,part) end
+            if pos and math.max(math.abs(pos[1]-anchor[1]),math.abs(pos[2]-anchor[2]),math.abs(pos[3]-anchor[3]))<=cfg.MaxBodySpan then
+                e.boneOffsets[part.name]={pos[1]-anchor[1],pos[2]-anchor[2],pos[3]-anchor[3]}
+            end
         end
+    elseif not V.fast then return end
+    -- Reproject the cached world pose through the current camera every frame.
+    -- Slow native pose reads no longer freeze the skeleton's screen coordinates.
+    e.boneScreen={};stats.skeletonUpdates=stats.skeletonUpdates+1
+    for name,offset in pairs(e.boneOffsets) do
+        local pos=e.framePositions[name] or {anchor[1]+offset[1],anchor[2]+offset[2],anchor[3]+offset[3]}
+        stats.skeletonProjections=stats.skeletonProjections+1
+        local x,y=V.project(pos[1],pos[2],pos[3])
+        if x then e.boneScreen[name]={x,y} end
     end
 end
+
 local function newSlot()
     local s={objects={}}
     local function own(obj) if obj then s.objects[#s.objects+1]=obj end; return obj end
@@ -605,8 +704,8 @@ local function renderExtras(slot,e,now)
     updateBones(e,now)
     slot.bones=slot.bones or {}
     for i,pair in ipairs(bones) do
-        local a=cfg.Skeleton and e.boneScreen and e.boneScreen[pair[1]]
-        local b=cfg.Skeleton and e.boneScreen and e.boneScreen[pair[2]]
+        local a=cfg.Skeleton and e.fullDetail~=false and e.boneScreen and e.boneScreen[pair[1]]
+        local b=cfg.Skeleton and e.fullDetail~=false and e.boneScreen and e.boneScreen[pair[2]]
         local line=slot.bones[i]
         if a and b and features.line then
             if not line then
@@ -622,7 +721,7 @@ local function renderExtras(slot,e,now)
     end
     local head=e.framePositions.head
     local x,y
-    if cfg.HeadDot and head then x,y=project(head[1],head[2],head[3]) end
+    if cfg.HeadDot and e.fullDetail~=false and head then x,y=V.project(head[1],head[2],head[3]) end
     if x then
         if not slot.dot and not slot.dotUnavailable then
             if features.circle then slot.dot=tryDrawing("Circle",pale); if not slot.dot then features.circle=false end end
@@ -642,6 +741,7 @@ local function renderExtras(slot,e,now)
     elseif slot.dot then assign(slot.dot,"Visible",false) end
 end
 local function renderSlot(slot,e,b,vw,vh)
+    V.health(slot,e,b)
     local l,t,r,bottom=b[1],b[2],b[3],b[4]
     if slot.box then
         assign(slot.box,"Visible",cfg.Boxes)
@@ -657,13 +757,13 @@ local function renderSlot(slot,e,b,vw,vh)
         end
     end
     if slot.tracer then
-        assign(slot.tracer,"Visible",cfg.Tracers)
-        if cfg.Tracers then vector2(slot.tracer,"From",vw/2,vh-2); vector2(slot.tracer,"To",(l+r)/2,bottom) end
+        assign(slot.tracer,"Visible",cfg.Tracers and e.fullDetail~=false)
+        if cfg.Tracers and e.fullDetail~=false then vector2(slot.tracer,"From",vw/2,vh-2); vector2(slot.tracer,"To",(l+r)/2,bottom) end
     end
     if slot.label then
         local ok,err=pcall(function()
-            assign(slot.label,"Visible",cfg.Labels)
-            if cfg.Labels then
+            assign(slot.label,"Visible",cfg.Labels and e.fullDetail~=false)
+            if cfg.Labels and e.fullDetail~=false then
                 assign(slot.label,"Text",(e.label or e.name).." | TEAM "..(e.team or "?")..(cfg.Distances and string.format(" | %.0f studs",e.distance) or ""))
                 vector2(slot.label,"Position",math.min(l,math.max(0,vw-160)),math.max(0,t-17))
             end
@@ -823,7 +923,7 @@ local function aimStep(now,vw,vh)
                 if distance and (not A.closestDistance or distance<A.closestDistance) then A.closestDistance=distance; A.closestName=e.name end
                 if candidate then
                     A.eligible=A.eligible+1
-                    if not best or candidate.error<best.error then best=candidate end
+                    if V.better(candidate,best) then best=candidate end
                 else
                     local key=category or reason or "unknown rejection"
                     A.rejects[key]=(A.rejects[key] or 0)+1; A.lastRejects[e.name]=reason or key
@@ -914,11 +1014,13 @@ local function aimStep(now,vw,vh)
     recordAimGate()
 end
 -- Per-weapon settings contain only aim parameters; master enable/hold stay global.
-local profileKeys={"AimMotionLead","AimAcquireBoost","RCSBuildUp","RCSBuildRecovery","RCSProfileAllowed","RCSVertical","RCSHorizontal","RCSReturnTime","AimPoint","AimAcquireRadius","AimTrackRadius","AimSmoothTime","AimGain","AimMaxStep","AimBodyAcquire","AimMaxPixelsPerSecond","AimDeadzone","AimMaxDistance","ProfileAimAllowed"}
+local modeKeys={"AimAcquireRadius","AimTrackRadius","AimSmoothTime","AimGain","AimMaxStep","AimMaxPixelsPerSecond"}
+local profileKeys={"RCSXStrength","RCSYStrength","SeparateADS","ADSAimAcquireRadius","ADSAimTrackRadius","ADSAimSmoothTime","ADSAimGain","ADSAimMaxStep","ADSAimMaxPixelsPerSecond","AimMotionLead","AimAcquireBoost","RCSBuildUp","RCSBuildRecovery","RCSProfileAllowed","RCSVertical","RCSHorizontal","RCSReturnTime","AimPoint","AimAcquireRadius","AimTrackRadius","AimSmoothTime","AimGain","AimMaxStep","AimBodyAcquire","AimMaxPixelsPerSecond","AimDeadzone","AimMaxDistance","ProfileAimAllowed"}
 local function cloneProfile(source)
     local out={}; for _,key in ipairs(profileKeys) do out[key]=source[key] end; return out
 end
 P={Profiles={Default=cloneProfile(cfg)},Names={"Default"},Editing="Default",Active="Default",nextPoll=0,nextSlots=0,
+    ScopedWeapons={AWP=true},EditMode="Hip",Mode="Hip",ModeSource="unavailable",ModeKnown=false,modeNext=0,modeChanges=0,
     switches=0,prefixReads=0,unresolved=0,parseStatus="not sampled",lastRaw=nil,settings="not loaded",lastInventory={}}
 C.Profiles=P
 local function ensureProfile(name)
@@ -1001,12 +1103,59 @@ function P.prefix(raw)
     end
     return out,"field cap"
 end
+function P.scopeAllowed(name)
+    if name=="Default" then name=P.Current end
+    if type(name)~="string" then return false end
+    local key=name:upper():gsub("[%s_%-]","")
+    -- Exact normalized weapon names, never a substring or RMB/FOV inference.
+    return P.ScopedWeapons[name]==true or key=="AWP" or key=="SCOUT" or key=="SSG08"
+end
 function P.saveEditing()
-    if C.MenuOpen and P.Profiles[P.Editing] then P.Profiles[P.Editing]=cloneProfile(cfg) end
+    if not C.MenuOpen or not P.Profiles[P.Editing] then return end
+    local old=P.Profiles[P.Editing];local out=cloneProfile(cfg)
+    if P.EditMode=="ADS" then
+        for _,key in ipairs(modeKeys) do out[key]=old[key];out["ADS"..key]=cfg[key] end
+    end
+    P.Profiles[P.Editing]=out
 end
 function P.load(name)
     local p=P.Profiles[name] or P.Profiles.Default
     for _,key in ipairs(profileKeys) do cfg[key]=p[key] end
+    local allowed=P.scopeAllowed(C.MenuOpen and name or P.Current)
+    if C.MenuOpen and not allowed then P.EditMode="Hip" end
+    local mode=C.MenuOpen and P.EditMode or (allowed and p.SeparateADS and P.Mode or "Hip")
+    if mode=="ADS" then for _,key in ipairs(modeKeys) do cfg[key]=p["ADS"..key] end end
+    P.AppliedMode=mode
+    if cfg.RCSStrengthModel then
+        cfg.RCSVertical=.30*cfg.RCSYStrength/100;cfg.RCSHorizontal=.10*cfg.RCSXStrength/100
+        cfg.RCSBuildUp=.04*cfg.RCSYStrength/100;cfg.RCSReturnTime=.105;cfg.RCSBuildRecovery=.20
+    end
+end
+function P.updateMode(now)
+    if now<P.modeNext then return end;P.modeNext=now+(P.scopeAllowed(P.Current) and .05 or .25)
+    local state,source
+    if cfg.ADSDetection=="RMB" then state=R.button(2);source="manual RMB proxy"
+    else
+        local a=attribute(player,"IsSniperScoped");local b=attribute(localCharacter,"IsSniperScoped")
+        if type(a)=="boolean" and type(b)=="boolean" and a~=b then source="conflicting native scope signals"
+        elseif type(a)=="boolean" then state=a;source="Player.IsSniperScoped"
+        elseif type(b)=="boolean" then state=b;source="Character.IsSniperScoped"
+        else source="native scope signal unavailable; Hip fallback" end
+    end
+    -- Learn additional scoped weapons only from a stable equipped identity and
+    -- an unambiguous native true, never from RMB, FOV or a weapon-name guess.
+    if cfg.ADSDetection=="Native" and state==true and P.Current and P.Identifier and P.EquipAt and now-P.EquipAt>=.35 then
+        P.ScopedWeapons[P.Current]=true
+    end
+    local allowed=P.scopeAllowed(P.Current)
+    local mode=allowed and state==true and "ADS" or "Hip"
+    if not allowed then source="single profile: weapon scope not confirmed" end
+    P.ModeKnown=type(state)=="boolean";P.ModeSource=source
+    if mode~=P.Mode then
+        P.Mode=mode;P.modeChanges=P.modeChanges+1;A.motion=nil;A.rx=0;A.ry=0;ui.dirty=true
+        event("Aim mode="..mode.." via "..source)
+        P.apply()
+    end
 end
 function P.apply()
     local name=cfg.UseWeaponProfiles and P.Current and P.Profiles[P.Current] and P.Current or "Default"
@@ -1032,7 +1181,7 @@ function P.poll(now)
     P.Rounds=finite(data.Rounds) and data.Rounds or nil
     if name then ensureProfile(name) end
     if name~=P.Current or identifier~=P.Identifier then
-        P.Current=name; P.Identifier=identifier; P.switches=P.switches+1
+        P.Current=name; P.Identifier=identifier;P.EquipAt=now;P.modeNext=0; P.switches=P.switches+1
         resetAim("weapon changed; release hold key"); ui.dirty=true
         event("Equipped="..str(name).." parse="..status)
     end
@@ -1129,7 +1278,8 @@ function R.AppendReport(rows,copy)
     rows[#rows+1]=string.format("Native output calls=%d combinedCalls=%d failures=%d maxCombined=%.3f clamps offset/step/aim=%d/%d/%d routing=%s",R.outputCalls,R.combinedCalls,R.failures,R.maxCombined,R.offsetClamps,R.stepClamps,R.aimClamps,str(R.routing))
     rows[#rows+1]=string.format("Calibration yaw/pitch=%.8f/%.8f deg/unit FOV=%g source=%s",cfg.RCSYawPerUnit,cfg.RCSPitchPerUnit,cfg.RCSFOV,str(R.calibrationStatus))
     rows[#rows+1]="Aim mouseCalls count requests while RCS is armed; native output calls above count merged attempts. Manual RMB + LMB is required for new shot corrections."
-    rows[#rows+1]="Pulse and build-up settings are adjustable test parameters, not a learned spray pattern. Random horizontal sway is not automatically cancelled."
+    rows[#rows+1]="RCS strength X="..cfg.RCSXStrength.."% Y="..cfg.RCSYStrength.."% model="..(cfg.RCSStrengthModel and "stronger transient + spray build-up; exponential return" or "legacy")
+    rows[#rows+1]="Strength controls scale a provisional shot-triggered model, not a verified weapon spray pattern. X adjusts a fixed lateral bias; it cannot predict random horizontal sway. Both sliders use 0..100%; zero produces no correction on that axis. Near-zero recoil is not established."
     for _,name in ipairs(P.Names) do
         local p=P.Profiles[name]
         rows[#rows+1]=string.format("RCS PROFILE %s allowed=%s vertical=%.3f horizontal=%.3f buildUp=%.3f recovery=%.3f",name,tostring(p.RCSProfileAllowed),p.RCSVertical,p.RCSHorizontal,p.RCSBuildUp,p.RCSBuildRecovery)
@@ -1220,11 +1370,12 @@ function R.begin(now)
     local x,y=0,0
     for i=#R.pulses,1,-1 do
         local p=R.pulses[i]; local age=now-p.time
-        if age>=p.duration or age<0 then table.remove(R.pulses,i)
-        else local weight=1-age/p.duration; x=x+p.x*weight; y=y+p.y*weight end
+        if age>=(cfg.RCSStrengthModel and p.duration*6 or p.duration) or age<0 then table.remove(R.pulses,i)
+        else local weight=cfg.RCSStrengthModel and math.exp(-age/p.duration) or 1-age/p.duration; x=x+p.x*weight; y=y+p.y*weight end
     end
     local length=math.sqrt(x*x+y*y)
-    if length>10 then x=x*10/length; y=y*10/length; R.offsetClamps=R.offsetClamps+1 end
+    local pulseCap=cfg.RCSStrengthModel and 20 or 10
+    if length>pulseCap then x=x*pulseCap/length; y=y*pulseCap/length; R.offsetClamps=R.offsetClamps+1 end
     if not firing or reloading==true or ammoIncrease or rounds==0 or (R.lastShot and now-R.lastShot>.25) then
         R.sprayY=R.sprayY*math.exp(-dt/cfg.RCSBuildRecovery)
         if math.abs(R.sprayY)<.1 then R.sprayY=0 end
@@ -1235,8 +1386,9 @@ function R.begin(now)
     local function round(v) return v>=0 and math.floor(v+.5) or math.ceil(v-.5) end
     local rx,ry=round(x)-R.appliedX,round(y)-R.appliedY
     local size=math.sqrt(rx*rx+ry*ry)
-    if size>4 then
-        local scale=4/size
+    local rcsStep=cfg.RCSStrengthModel and 8 or 4
+    if size>rcsStep then
+        local scale=rcsStep/size
         rx=rx>=0 and math.floor(rx*scale) or math.ceil(rx*scale)
         ry=ry>=0 and math.floor(ry*scale) or math.ceil(ry*scale)
         R.stepClamps=R.stepClamps+1
@@ -1279,8 +1431,10 @@ function R.flush()
     R.appliedX=R.appliedX+rx; R.appliedY=R.appliedY+ry
 end
 
-local profileRanges={AimMotionLead={0,.10},AimAcquireBoost={1,2},RCSBuildUp={0,.12},RCSBuildRecovery={.10,1},RCSVertical={0,.60},RCSHorizontal={-.30,.30},RCSReturnTime={.04,.25},AimAcquireRadius={20,160},AimTrackRadius={60,250},AimSmoothTime={.05,.40},AimGain={.25,2},AimMaxStep={1,12},AimMaxPixelsPerSecond={10,500},AimDeadzone={0,20},AimMaxDistance={0,10000}}
-local globals={"RCSYawPerUnit","RCSPitchPerUnit","RCSFOV","Enabled","Boxes","Tracers","Labels","Distances","EnemiesOnly","Skeleton","HeadDot","HeadDotRadius","AimHoldKey","AimAutomatic","AimPreview","AimShowFOV","UseWeaponProfiles","Chams","ChamsOpacity"}
+local profileRanges={RCSXStrength={0,100},RCSYStrength={0,100},AimMotionLead={0,.10},AimAcquireBoost={1,2},RCSBuildUp={0,.12},RCSBuildRecovery={.10,1},RCSVertical={0,.60},RCSHorizontal={-.30,.30},RCSReturnTime={.04,.25},AimAcquireRadius={20,160},AimTrackRadius={60,250},AimSmoothTime={.05,.40},AimGain={.25,2},AimMaxStep={1,12},AimMaxPixelsPerSecond={10,500},AimDeadzone={0,20},AimMaxDistance={0,10000}}
+local newRanges={}
+for _,key in ipairs(modeKeys) do profileRanges["ADS"..key]=profileRanges[key] end
+local globals={"ADSDetection","TargetPriority","HealthBars","NumericHP","RCSYawPerUnit","RCSPitchPerUnit","RCSFOV","Enabled","Boxes","Tracers","Labels","Distances","EnemiesOnly","Skeleton","HeadDot","HeadDotRadius","AimHoldKey","AimAutomatic","AimPreview","AimShowFOV","UseWeaponProfiles","Chams","ChamsOpacity"}
 local function httpService()
     local ok,value=pcall(function() return game:GetService("HttpService") end)
     return ok and value or nil
@@ -1289,7 +1443,7 @@ function C.SaveSettings()
     P.saveEditing()
     local service=httpService()
     if not service or type(writefile)~="function" then P.settings="Save unavailable"; ui.dirty=true; return false end
-    local data={Version=1,Profiles=P.Profiles,Globals={}}
+    local data={Version=1,RCSStrengthRangeVersion=2,Profiles=P.Profiles,ScopedWeapons=P.ScopedWeapons,Globals={}}
     for _,key in ipairs(globals) do data.Globals[key]=cfg[key] end
     data.Globals.Enabled=C.Enabled
     local ok,err=pcall(function()
@@ -1305,7 +1459,11 @@ function C.LoadSettings(startup)
     local service=httpService()
     if not service or type(readfile)~="function" then P.settings="Load unavailable"; return false end
     local ok,data=pcall(function()
-        local raw=readfile(cfg.SettingsPath)
+        local raw
+        local readOK,result=pcall(readfile,cfg.SettingsPath)
+        if readOK and type(result)=="string" then raw=result
+        elseif startup then raw=readfile("bloxstrike/client_settings.json");C.SettingsImportedFrom="stable 1.5 settings (read only)"
+        else assert(false,"test settings unavailable") end
         assert(type(raw)=="string" and #raw<=64000,"settings size invalid")
         local value=service:JSONDecode(raw)
         assert(type(value)=="table" and value.Version==1 and type(value.Profiles)=="table","settings format invalid")
@@ -1321,6 +1479,7 @@ function C.LoadSettings(startup)
             if values.RCSProfileAllowed==nil then p.RCSProfileAllowed=name=="AK-47" end
             for _,key in ipairs(profileKeys) do
                 local value=values[key]
+                if (key=="RCSXStrength" or key=="RCSYStrength") and data.RCSStrengthRangeVersion~=2 then value=0 end
                 if value~=nil then
                     local bounds=profileRanges[key]
                     if bounds then
@@ -1331,6 +1490,8 @@ function C.LoadSettings(startup)
                     p[key]=value
                 end
             end
+            -- Old profiles inherit matching ADS values rather than unrelated defaults.
+            for _,key in ipairs(modeKeys) do if values["ADS"..key]==nil then p["ADS"..key]=p[key] end end
             staged[name]=p; if name~="Default" then names[#names+1]=name end
         end
     end
@@ -1342,11 +1503,24 @@ function C.LoadSettings(startup)
     end
     for _,key in ipairs(globals) do
         local value=g[key]
-        if (key=="RCSYawPerUnit" or key=="RCSPitchPerUnit" or key=="RCSFOV") and finite(value) then cfg[key]=value
+        if newRanges[key] and value~=nil and (not finite(value) or value<newRanges[key][1] or value>newRanges[key][2]) then P.settings="Invalid test setting: "..key;return false end
+        if key=="ADSDetection" and value~=nil and value~="Native" and value~="RMB" then P.settings="Invalid ADS source";return false end
+        if key=="TargetPriority" and value~=nil and value~="Crosshair" and value~="Distance" and value~="Health" then P.settings="Invalid target priority";return false end
+    end
+    for _,key in ipairs(globals) do
+        local value=g[key]
+        if newRanges[key] and finite(value) then cfg[key]=value
+        elseif (key=="ADSDetection" or key=="TargetPriority") and type(value)=="string" then cfg[key]=value
+        elseif (key=="RCSYawPerUnit" or key=="RCSPitchPerUnit" or key=="RCSFOV") and finite(value) then cfg[key]=value
         elseif type(cfg[key])=="boolean" and type(value)=="boolean" then cfg[key]=value
         elseif key=="HeadDotRadius" and finite(value) then cfg[key]=clamp(math.floor(value),1,3)
         elseif key=="ChamsOpacity" and finite(value) then cfg[key]=clamp(value,.05,.80)
         elseif key=="AimHoldKey" and finite(value) and value==math.floor(value) and value>=1 and value<=254 and value~=cfg.MenuKey then cfg[key]=value end
+    end
+    if type(data.ScopedWeapons)=="table" then
+        local n=0;for name,value in pairs(data.ScopedWeapons) do
+            if value==true and type(name)=="string" and #name>0 and #name<=80 and not name:find("[%c]") and n<64 then P.ScopedWeapons[name]=true;n=n+1 end
+        end
     end
     P.Profiles=staged; P.Names=names; P.Editing=staged[P.Editing] and P.Editing or "Default"
     C.Enabled=cfg.Enabled; P.apply(); R.cancel("settings loaded"); resetAim("settings loaded"); ui.dirty=true; P.settings="Settings loaded"
@@ -1355,21 +1529,47 @@ function C.LoadSettings(startup)
     return true
 end
 
-local visualRows={{"ESP enabled","Enabled"},{"Body boxes","Boxes"},{"Tracers","Tracers"},{"Player / bot labels","Labels"},{"Distance labels","Distances"},{"Enemies only","EnemiesOnly"},{"Skeleton","Skeleton"},{"Head dot","HeadDot"},{"Head dot radius","radius"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
-local aimRows={{"Aim assist","AimEnabled"},{"Hold key (click to bind)","bind"},{"Automatic aim (no hold)","AimAutomatic"},{"Preview only (no movement)","AimPreview"},{"Aim point","AimPoint"},{"Acquire radius","AimAcquireRadius"},{"Body-aware acquisition","AimBodyAcquire"},{"Tracking radius","AimTrackRadius"},{"Smooth time","AimSmoothTime"},{"Mouse gain","AimGain"},{"Max movement per call","AimMaxStep"},{"Show aim circles","AimShowFOV"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
-local effectRows={{"Use weapon profiles","UseWeaponProfiles"},{"Edit profile (click to cycle)","profileSelect"},{"Allow aim for this profile","ProfileAimAllowed"},{"Copy Default into this profile","copyDefault"},{"Filled body chams","Chams"},{"Chams opacity","ChamsOpacity"},{"Experimental RCS controls","statusRCS"},{"Auto bunnyhop","statusBhop"},{"Auto strafe","statusStrafe"},{"Save all settings","saveSettings"},{"Load saved settings","loadSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
-local trackingRows={{"Correction speed","AimMaxPixelsPerSecond"},{"Stop radius","AimDeadzone"},{"Motion compensation","AimMotionLead"},{"Acquisition boost","AimAcquireBoost"},{"Smooth time","AimSmoothTime"},{"Mouse gain","AimGain"},{"Max movement per call","AimMaxStep"},{"Tracking radius","AimTrackRadius"},{"Save all settings","saveSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
-local recoilRows={{"Experimental RCS","RCSEnabled"},{"Allow for this profile","RCSProfileAllowed"},{"Vertical pulse","RCSVertical"},{"Horizontal pulse","RCSHorizontal"},{"Return time","RCSReturnTime"},{"Vertical build-up","RCSBuildUp"},{"Build-up recovery","RCSBuildRecovery"},{"Import last calibration","importCalibration"},{"Calibration (RMB only)","statusCalibration"},{"Operating condition","statusRCSGate"},{"Save all settings","saveSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
-local pages={visualRows,aimRows,effectRows,trackingRows,recoilRows}
-local menuRows=visualRows
-local choices={AimPoint={"Torso","Head","Chest"},AimAcquireRadius={20,35,50,75,100,125,160},AimTrackRadius={60,90,120,160,200,250},AimSmoothTime={.12,.22,.30,.40},AimGain={.25,.5,.65,1,1.5},AimMaxStep={1,2,3,4,6}}
+local visualRows={{"ESP enabled","Enabled"},{"Body boxes","Boxes"},{"Tracers","Tracers"},{"Player / bot labels","Labels"},{"Distance labels","Distances"},{"Enemies only","EnemiesOnly"},{"Skeleton","Skeleton"},{"Head dot","HeadDot"},{"Head dot radius","radius"},{"Health bars","HealthBars"},{"Numeric health","NumericHP"},{"Filled body chams","Chams"},{"Chams opacity","ChamsOpacity"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
+local aimRows={{"Aim assist","AimEnabled"},{"Hold key (click to bind)","bind"},{"Automatic aim (no hold)","AimAutomatic"},{"Preview only (no movement)","AimPreview"},{"Aim point","AimPoint"},{"Acquire radius","AimAcquireRadius"},{"Target priority","TargetPriority"},{"Tracking radius","AimTrackRadius"},{"Smooth time","AimSmoothTime"},{"Mouse gain","AimGain"},{"Max movement per call","AimMaxStep"},{"Show aim circles","AimShowFOV"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
+local effectRows={{"Use weapon profiles","UseWeaponProfiles"},{"Edit profile (click to cycle)","profileSelect"},{"Allow aim for this profile","ProfileAimAllowed"},{"Copy Default into this profile","copyDefault"},{"Experimental RCS controls","statusRCS"},{"Auto bunnyhop","statusBhop"},{"Auto strafe","statusStrafe"},{"Save all settings","saveSettings"},{"Load saved settings","loadSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
+local trackingRows={{"Correction speed","AimMaxPixelsPerSecond"},{"Stop radius","AimDeadzone"},{"Motion compensation","AimMotionLead"},{"Acquisition boost","AimAcquireBoost"},{"Smooth time","AimSmoothTime"},{"Mouse gain","AimGain"},{"Max movement per call","AimMaxStep"},{"Tracking radius","AimTrackRadius"},{"Save all settings","saveSettings"},{"Copy diagnostics","report"},{"Body-aware acquisition","AimBodyAcquire"},{"Stop and remove client","quit"}}
+local recoilRows={{"Recoil control","RCSEnabled"},{"Allow for this weapon","RCSProfileAllowed"},{"Horizontal X strength","RCSXStrength"},{"Vertical Y strength","RCSYStrength"},{"Import mouse calibration","importCalibration"},{"Save settings","saveSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
+
+local modeRows={{"Editing weapon profile","profileSelect"},{"Editing aim mode","editAimMode"},{"Separate hip / ADS settings","SeparateADS"},{"Scope detection source","ADSDetection"},{"Copy Hip into ADS","copyHipADS"},{"Acquire radius (editing mode)","AimAcquireRadius"},{"Tracking radius (editing mode)","AimTrackRadius"},{"Smooth time (editing mode)","AimSmoothTime"},{"Tracking gain (editing mode)","AimGain"},{"Save test settings","saveSettings"}}
+local pages={visualRows,aimRows,effectRows,trackingRows,recoilRows,modeRows}
+local menuRows
+local function modeLocked(key)
+    return A.page==6 and not P.scopeAllowed(P.Editing) and key~="profileSelect" and key~="saveSettings" and key~="report" and key~="quit"
+end
+local function openPage(page)
+    P.saveEditing()
+    if page==6 then
+        -- Opening the subpage follows the equipped weapon instead of an old
+        -- pinned profile. The profile selector still allows deliberate editing.
+        P.EditPinned=false
+        local name=cfg.UseWeaponProfiles and P.Current or "Default"
+        P.Editing=P.Profiles[name] and name or "Default"
+        P.load(P.Editing)
+    end
+    A.page=page;menuRows=pages[page];ui.row=1;ui.slider=nil;ui.notice="";ui.dirty=true
+end
+menuRows=visualRows
+local choices={ADSDetection={"Native","RMB"},TargetPriority={"Crosshair","Distance","Health"},AimPoint={"Torso","Head","Chest"},AimAcquireRadius={20,35,50,75,100,125,160},AimTrackRadius={60,90,120,160,200,250},AimSmoothTime={.12,.22,.30,.40},AimGain={.25,.5,.65,1,1.5},AimMaxStep={1,2,3,4,6}}
 local function keyName(key)
     local names={[1]="LMB",[2]="RMB",[4]="MMB",[5]="Mouse4",[6]="Mouse5",[16]="Shift",[17]="Ctrl",[18]="Alt",[32]="Space"}
     return names[key] or ((key>=48 and key<=90) and string.char(key) or ("VK "..key))
 end
 local function toggleRow(row)
     local key=menuRows[row][2]
-    if key=="Enabled" then C.Enabled=not C.Enabled
+    if modeLocked(key) then ui.notice="Scoped weapons only: "..str(P.Editing,24);ui.dirty=true;return end
+    if key=="editAimMode" then
+        if not P.scopeAllowed(P.Editing) then ui.notice="This weapon uses one aim profile";ui.dirty=true;return end
+        P.saveEditing();P.EditMode=P.EditMode=="Hip" and "ADS" or "Hip";P.load(P.Editing);ui.dirty=true;return
+    elseif key=="copyHipADS" then
+        if not P.scopeAllowed(P.Editing) then ui.notice="Scope not confirmed for this weapon";ui.dirty=true;return end
+        P.saveEditing();local p=P.Profiles[P.Editing];for _,k in ipairs(modeKeys) do p["ADS"..k]=p[k] end;P.load(P.Editing);ui.dirty=true;return
+    elseif key=="SeparateADS" and not P.scopeAllowed(P.Editing) then ui.notice="Split settings are for scoped weapons only";ui.dirty=true;return
+    elseif key=="Enabled" then C.Enabled=not C.Enabled
     elseif key=="report" then report(true)
     elseif key=="importCalibration" then R.ImportCalibration(); return
     elseif key=="quit" then C.Stop("menu stop"); return
@@ -1398,6 +1598,7 @@ local function uiObject(index,kind,color)
 end
 -- Every numeric control has its own unit, bounds and fine increment.
 local sliderSpecs={
+    RCSXStrength={min=0,max=100,step=5,format="%.0f%%"},RCSYStrength={min=0,max=100,step=5,format="%.0f%%"},
     radius={key="HeadDotRadius",min=1,max=3,step=1,format="%.0f px"},
     AimAcquireRadius={min=20,max=160,step=1,format="%.0f px"},
     AimTrackRadius={min=60,max=250,step=1,format="%.0f px"},
@@ -1420,6 +1621,7 @@ local function sliderText(spec,value)
 end
 local function setSlider(row,value)
     local name=menuRows[row][2]; local spec=sliderSpecs[name]; if not spec then return end
+    if modeLocked(name) then ui.notice="Scoped weapons only: "..str(P.Editing,24);ui.dirty=true;return end
     local key=spec.key or name
     value=clamp(spec.min+math.floor((value-spec.min)/spec.step+.5)*spec.step,spec.min,spec.max)
     if math.abs(cfg[key]-value)>.000001 then
@@ -1427,6 +1629,7 @@ local function setSlider(row,value)
         if key=="AimAcquireRadius" and cfg.AimTrackRadius<value then cfg.AimTrackRadius=value end
         if key=="AimTrackRadius" and cfg.AimAcquireRadius>value then cfg.AimAcquireRadius=value end
         if name:sub(1,3)=="Aim" or name:sub(1,3)=="RCS" then resetAim("aim setting changed; release hold key"); P.saveEditing() end
+        if name=="RCSXStrength" or name=="RCSYStrength" then P.apply();R.cancel("RCS strength changed") end
     end
 end
 local function paintPanel()
@@ -1434,11 +1637,12 @@ local function paintPanel()
     if not features.text then return end
     local total=0; ui.layout={}
     for i,row in ipairs(menuRows) do
-        local h=sliderSpecs[row[2]] and 54 or 30
-        ui.layout[i]={top=ui.y+43+total,height=h,left=ui.x+30,right=ui.x+ui.w-78}
+        local h=sliderSpecs[row[2]] and (A.page==1 and 48 or 50) or (A.page==1 and 24 or 25)
+        ui.contentTop=(A.page==2 or A.page==6) and 136 or 102
+        ui.layout[i]={top=ui.y+ui.contentTop+total,height=h,left=ui.x+30,right=ui.x+ui.w-78}
         total=total+h
     end
-    ui.h=106+total
+    ui.h=ui.contentTop+60+total
     for row=#menuRows+1,16 do
         for _,index in ipairs({100+row,200+row,row+2}) do
             if ui.objects[index] then assign(ui.objects[index],"Visible",false) end
@@ -1462,20 +1666,37 @@ local function paintPanel()
         rectangle(1,ui.x,ui.y,ui.w,ui.h,background)
         rectangle(2,ui.x,ui.y,ui.w,3,purple)
     end
-    label(100,"BLOXSTRIKE 1.5",ui.x+12,ui.y+12,ink)
-    for page=1,#pages do
-        local x=ui.x+146+(page-1)*(264/#pages)
-        if features.square then rectangle(19+page,x,ui.y+8,264/#pages-2,24,A.page==page and purple or background) end
-        label(149+page,({"VISUALS","AIM","PROFILES","TRACK","RCS"})[page],x+4,ui.y+12,ink,true)
+    label(100,"BLOXSTRIKE 1.6.4 TEST",ui.x+12,ui.y+9,ink)
+    ui.tabs={};ui.subtabs={}
+    for index,page in ipairs({1,2,3,4,5}) do
+        local col=(index-1)%3;local row=math.floor((index-1)/3)
+        local x,y=ui.x+8+col*135,ui.y+34+row*30
+        ui.tabs[page]={left=x,top=y,right=x+130,bottom=y+25,page=page}
+        rectangle(19+index,x,y,130,25,(A.page==page or (page==2 and A.page==6)) and purple or background)
+        label(149+index,({"VISUALS","AIM","PROFILES","TRACK","RCS"})[index],x+9,y+5,ink,true)
+    end
+    
+    if A.page==2 or A.page==6 then
+        for index,page in ipairs({2,6}) do
+            local x,y=ui.x+12+(index-1)*198,ui.y+98
+            ui.subtabs[index]={left=x,top=y,right=x+190,bottom=y+25,page=page}
+            rectangle(30+index,x,y,190,25,A.page==page and purple or background)
+            label(160+index,page==2 and "AIM SETTINGS" or "HIP / ADS SETTINGS",x+6,y+5,ink,true)
+        end
+    else
+        for _,index in ipairs({31,32,161,162}) do if ui.objects[index] then assign(ui.objects[index],"Visible",false) end end
     end
     for i,row in ipairs(menuRows) do
         local y=ui.layout[i].top; local name=row[2]; local spec=sliderSpecs[name]
         local active=name=="Enabled" and C.Enabled or (name~="Enabled" and cfg[name])
-        label(100+i,(ui.row==i and "> " or "  ")..row[1],ui.x+12,y,ink)
+        local locked=modeLocked(name)
+        label(100+i,(ui.row==i and "> " or "  ")..row[1],ui.x+12,y,locked and gray or ink)
         local value=active and "ON" or "OFF"
         if name=="report" then value="COPY"
         elseif name=="quit" then value="STOP"
         elseif name=="bind" then value=A.capture and "PRESS KEY" or keyName(cfg.AimHoldKey)
+        elseif name=="editAimMode" then value=P.EditMode
+        elseif name=="copyHipADS" then value="COPY"
         elseif name=="profileSelect" then value=str(P.Editing,18)
         elseif name=="Chams" and FX.chamFault then value="UNAVAILABLE"
         elseif name=="copyDefault" then value="APPLY"
@@ -1488,11 +1709,12 @@ local function paintPanel()
         elseif name:sub(1,6)=="status" then value="UNVERIFIED"
         elseif spec then value=sliderText(spec,cfg[spec.key or name])
         elseif choices[name] then value=tostring(cfg[name]) end
-        label(200+i,value,ui.x+275,y,pale)
+        if locked and not spec then value="LOCKED" end
+        label(200+i,value,ui.x+275,y,locked and gray or pale)
         local indicator=ui.objects[i+2]
         if not indicator and features.square then indicator=uiObject(i+2,"Square",gray) end
         if indicator then
-            assign(indicator,"Color",active and purple or gray); assign(indicator,"Filled",true)
+            assign(indicator,"Color",not locked and active and purple or gray); assign(indicator,"Filled",true)
             vector2(indicator,"Position",ui.x+252,y+4); vector2(indicator,"Size",12,12)
             assign(indicator,"Visible",not spec and (type(cfg[name])=="boolean" or name=="Enabled"))
         end
@@ -1501,21 +1723,22 @@ local function paintPanel()
             local ratio=clamp((cfg[spec.key or name]-spec.min)/(spec.max-spec.min),0,1)
             if features.square then
                 rectangle(base,r.left,y+27,width,5,gray)
-                rectangle(base+1,r.left,y+27,math.max(1,width*ratio),5,purple)
-                rectangle(base+2,r.left+width*ratio-4,y+23,8,13,pale)
+                rectangle(base+1,r.left,y+27,math.max(1,width*ratio),5,locked and gray or purple)
+                rectangle(base+2,r.left+width*ratio-4,y+23,8,13,locked and gray or pale)
                 for n=0,2 do used[base+n]=true; ui.sliderIDs[base+n]=true end
             end
             label(base+3,sliderText(spec,spec.min),r.left,y+35,gray,true)
             label(base+4,sliderText(spec,spec.max),r.right-55,y+35,gray,true)
-            label(base+5,"-",ui.x+ui.w-49,y,ink)
-            label(base+6,"+",ui.x+ui.w-24,y,ink)
+            label(base+5,"-",ui.x+ui.w-49,y,locked and gray or ink)
+            label(base+6,"+",ui.x+ui.w-24,y,locked and gray or ink)
             for n=3,6 do used[base+n]=true; ui.sliderIDs[base+n]=true end
         end
     end
     for index in pairs(ui.sliderIDs) do if not used[index] and ui.objects[index] then assign(ui.objects[index],"Visible",false) end end
-    local footer=50+total
-    label(300,A.page==1 and ("Team: "..(C.LocalTeam or "UNKNOWN").." | current live rigs") or ((A.page==2 or A.page==4 or A.page==5) and ("Editing: "..str(P.Editing,16).." | active: "..str(P.Active,16)) or (str(P.Current or "Weapon unknown",20).." | "..str(P.settings,28))),ui.x+12,ui.y+footer,gray)
-    label(301,A.page==5 and "RCS | RMB + manual fire | automatic rearm" or (A.page==2 or A.page==4) and "NO WALL CHECK | close this menu to aim" or "Drag tracks | - / + fine steps | values shown above",ui.x+12,ui.y+footer+19,gray)
+    local footer=ui.contentTop+5+total
+    label(300,"Editing: "..str(P.Editing,20).." ["..P.EditMode.."]",ui.x+12,ui.y+footer,gray)
+    local scopeNotice=A.page==6 and not P.scopeAllowed(P.Editing) and "Controls locked: scoped weapons only" or nil
+    label(301,ui.notice~="" and str(ui.notice,48) or scopeNotice or ("Active: "..str(P.Active,20).." ["..(P.AppliedMode or "Hip").."]"),ui.x+12,ui.y+footer+17,gray)
     label(302,"RIGHT SHIFT opens / closes this menu",ui.x+12,ui.y+footer+37,gray)
     ui.dirty=false
 end
@@ -1553,9 +1776,14 @@ local function controls(now)
         if type(ismouse1pressed)=="function" then local good,value=pcall(ismouse1pressed); if good and value then mouseDown=true end end
         if not mouseDown then ui.slider=nil end
         if not A.capture and mouseDown and not ui.wasDown and finite(x) and finite(y) and x>=ui.x and x<=ui.x+ui.w then
-            if y>=ui.y+8 and y<=ui.y+32 and x>=ui.x+146 and x<ui.x+410 then
-                A.page=math.floor((x-ui.x-146)/(264/#pages))+1; menuRows=pages[A.page]; ui.row=1; ui.slider=nil; ui.dirty=true
-            else
+            local changed=false
+            for _,tab in pairs(ui.tabs or {}) do
+                if x>=tab.left and x<=tab.right and y>=tab.top and y<=tab.bottom then openPage(tab.page);changed=true;break end
+            end
+            if not changed then for _,tab in ipairs(ui.subtabs or {}) do
+                if x>=tab.left and x<=tab.right and y>=tab.top and y<=tab.bottom then openPage(tab.page);changed=true;break end
+            end end
+            if not changed then
                 for row,r in ipairs(ui.layout) do
                     if y>=r.top-3 and y<r.top+r.height-3 then
                         ui.row=row; local name=menuRows[row][2]; local spec=sliderSpecs[name]
@@ -1612,7 +1840,7 @@ function FX.partHull(e,part,vw,vh)
     local points={}; local size=part.size
     for _,sx in ipairs({-.5,.5}) do for _,sy in ipairs({-.5,.5}) do for _,sz in ipairs({-.5,.5}) do
         local x,y,z=size[1]*sx,size[2]*sy,size[3]*sz
-        local px,py=project(m[1]+m[4]*x+m[5]*y+m[6]*z,m[2]+m[7]*x+m[8]*y+m[9]*z,m[3]+m[10]*x+m[11]*y+m[12]*z)
+        local px,py=V.project(m[1]+m[4]*x+m[5]*y+m[6]*z,m[2]+m[7]*x+m[8]*y+m[9]*z,m[3]+m[10]*x+m[11]*y+m[12]*z)
         -- Skip a clipped part rather than invent off-screen WorldToScreen values.
         if not px or px<0 or py<0 or px>vw or py>vh then return nil end
         points[#points+1]={px,py}
@@ -1620,6 +1848,9 @@ function FX.partHull(e,part,vw,vh)
     return FX.hull(points)
 end
 function FX.chams(slot,e,now,vw,vh,rank)
+    if e.fullDetail==false then
+        for _,o in ipairs(slot.chams or {}) do assign(o,"Visible",false) end;slot.nextChams=0;return
+    end
     slot.chams=slot.chams or {}
     if not cfg.Chams or FX.chamFault or rank>cfg.ChamsMaxTargets then
         for _,obj in ipairs(slot.chams) do assign(obj,"Visible",false) end
@@ -1652,6 +1883,54 @@ function FX.chams(slot,e,now,vw,vh,rank)
     slot.chamCount=count; FX.chamTriangles=FX.chamTriangles+count
     for i=count+1,#slot.chams do assign(slot.chams[i],"Visible",false) end
 end
+function V.detail(e)
+    return true -- Detail is controlled only by individual visual switches.
+end
+function V.health(slot,e,b)
+    local hp=e.health;local valid=finite(hp) and hp>0 and e.fullDetail
+    local max=e.maxHealth
+    local bar=cfg.HealthBars and valid and finite(max) and max>0
+    if bar then
+        for _,key in ipairs({"healthBack","healthBar"}) do
+            if not slot[key] and not slot[key.."Failed"] then
+                slot[key]=tryDrawing("Line",gray)
+                if slot[key] then slot.objects[#slot.objects+1]=slot[key] else slot[key.."Failed"]=true end
+            end
+        end
+        local ratio=clamp(hp/max,0,1);local x=b[1]-5
+        if slot.healthBack then
+            vector2(slot.healthBack,"From",x,b[2]);vector2(slot.healthBack,"To",x,b[4]);assign(slot.healthBack,"Thickness",4);assign(slot.healthBack,"Visible",true)
+        end
+        if slot.healthBar then
+            vector2(slot.healthBar,"From",x,b[4]);vector2(slot.healthBar,"To",x,b[4]-(b[4]-b[2])*ratio)
+            assign(slot.healthBar,"Thickness",2);assign(slot.healthBar,"Color",V.healthColor(ratio));assign(slot.healthBar,"Visible",true)
+            V.healthDraws=V.healthDraws+1
+        end
+    else
+        for _,key in ipairs({"healthBack","healthBar"}) do if slot[key] then assign(slot[key],"Visible",false) end end
+    end
+    if cfg.NumericHP and valid then
+        if not slot.hpText and not slot.hpFailed then
+            slot.hpText=tryDrawing("Text",pale)
+            if slot.hpText then slot.objects[#slot.objects+1]=slot.hpText else slot.hpFailed=true end
+        end
+        if slot.hpText then
+            assign(slot.hpText,"Text",string.format("%.0f HP",hp));vector2(slot.hpText,"Position",b[3]+5,b[2]);assign(slot.hpText,"Visible",true);V.hpDraws=V.hpDraws+1
+        end
+    elseif slot.hpText then assign(slot.hpText,"Visible",false) end
+end
+function V.better(a,b)
+    if not b then return true end
+    local x,y=a.error,b.error
+    if cfg.TargetPriority=="Distance" then x=a.entry.distance or math.huge;y=b.entry.distance or math.huge
+    elseif cfg.TargetPriority=="Health" then
+        x=finite(a.entry.health) and a.entry.health>0 and a.entry.health or math.huge
+        y=finite(b.entry.health) and b.entry.health>0 and b.entry.health or math.huge
+    end
+    if x~=y then return x<y end
+    if a.error~=b.error then return a.error<b.error end
+    return tostring(a.entry.key)<tostring(b.entry.key)
+end
 local function step(now)
     controls(now); if not C.Running then return end
     if now-lastRefresh>=cfg.CacheInterval then
@@ -1666,19 +1945,24 @@ local function step(now)
     local vw,vh=xy(get(camera,"ViewportSize")); local camPos=xyz(get(camera,"Position"))
     if not vw or vw<=0 or vh<=0 or not camPos then C.State="waiting for camera"; R.cancel("camera unavailable"); hideAll(); aimIdle("camera unavailable"); return end
     if not C.Enabled or not root then R.cancel("client disabled / body folder unavailable"); hideAll(); aimIdle("client disabled / body folder unavailable"); return end
-    C.Viewport={vw,vh}; C.State="tracking"; local visible=0
+    P.updateMode(clock());V.projectFrame(clock(),camPos,vw,vh)
+    C.Viewport={vw,vh}; C.State="tracking"; local visible=0;V.full=0;V.reduced=0
+    local geometryStarted=clock()
     for _,e in ipairs(entries) do
         local good,box=pcall(geometry,e,camPos,vw,vh)
         e.renderBox=good and box or nil
         if not good then e.state="geometry read error";stats.stale=stats.stale+1 end
     end
+    V.geometryMs=(V.geometryMs or 0)+(clock()-geometryStarted)*1000
     local inputNow=clock()
     R.begin(inputNow)
     aimStep(inputNow,vw,vh)
     R.flush()
+    local drawStarted=clock()
     for i,e in ipairs(entries) do
         local b=e.renderBox
         if b then
+            e.fullDetail=V.detail(e);if e.fullDetail then V.full=V.full+1 else V.reduced=V.reduced+1 end
             local slot=slots[i]
             if not slot then slot=newSlot(); slots[i]=slot end
             if not slot.failed then
@@ -1710,6 +1994,7 @@ local function step(now)
         end
     end
     for i,slot in pairs(slots) do if i>#entries then hideSlot(slot) end end
+    V.drawMs=(V.drawMs or 0)+(clock()-drawStarted)*1000
     stats.visible=visible; stats.maxVisible=math.max(stats.maxVisible,visible); stats.renders=stats.renders+1
 end
 local ok,err=pcall(function()
@@ -1743,7 +2028,7 @@ end)
 if not ok then C.State="startup error: "..str(err); print("BLOXSTRIKE CLIENT: "..C.State); removeAll(); return end
 C.LoadSettings(true)
 C.Running=true
-print("BLOXSTRIKE CLIENT 1.5 ready. RIGHT SHIFT opens the menu. Click VISUALS / AIM / PROFILES / TRACK / RCS tabs. Feature toggles, reports and Stop are button-only. Aim and RCS start OFF; default aim hold is RMB.")
+print("BLOXSTRIKE CLIENT 1.6.4 TEST ready. RIGHT SHIFT opens the menu. Click VISUALS / AIM / PROFILES / TRACK / RCS tabs. Feature toggles, reports and Stop are button-only. Aim and RCS start OFF; default aim hold is RMB.")
 print("Aim has NO wall/visibility check. Hold mode waits for its first selected point while held, then locks that body until release/loss. Optional Automatic mode needs no hold and can reacquire after loss. No firing is generated.")
 print("Current live rigs only. Team/alive/presentation attributes are required. RCS is an experimental adjustable pulse/build-up test. Aim response includes bounded motion compensation. Bunnyhop and auto-strafe are not implemented.")
 while C.Running do
