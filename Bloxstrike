@@ -1,7 +1,11 @@
--- BLOXSTRIKE CLIENT 1.6.4 TEST / regular Matcha / complete standalone script
+-- BLOXSTRIKE CLIENT 1.6.10 TEST / regular Matcha / complete standalone script
 -- RIGHT SHIFT opens the panel. All feature toggles/actions use panel buttons.
--- Menu-selectable held or automatic mouse aim test. No visibility check or firing.
+-- Menu-selectable held or automatic mouse aim test. Optional experimental aim wall check; optional held-key trigger.
 local CONFIG={
+    AimInputFirst=true,AimStableMotion=true,RCSSustained=true,
+    TriggerEnabled=false,TriggerHoldKey=0x05,TriggerDelay=.08,TriggerInterval=.12,TriggerDistance=1000,TriggerPoint="Any body",
+    SpaceHop=false,
+    AimWallCheck=false,UnifiedChams=true,ShowHiddenLive=true,CacheStatesPerFrame=2,CacheWorkBudget=.003,
     RCSXStrength=0,RCSYStrength=0,RCSStrengthModel=true,
     SeparateADS=true,ADSDetection="Native",TargetPriority="Crosshair",
     ADSAimAcquireRadius=60,ADSAimTrackRadius=100,ADSAimSmoothTime=.25,ADSAimGain=.5,ADSAimMaxStep=3,ADSAimMaxPixelsPerSecond=120,
@@ -174,7 +178,7 @@ local function removeAll()
 end
 local function report(copy)
     local elapsed=math.max(.001,(C.StoppedAt or clock())-started)
-    local rows={"========== BLOXSTRIKE CLIENT 1.6.4 TEST ==========",
+    local rows={"========== BLOXSTRIKE CLIENT 1.6.10 TEST ==========",
         "State="..C.State.." running="..tostring(C.Running).." enabled="..tostring(C.Enabled).." menu="..tostring(C.MenuOpen),
         "PlaceId="..str(get(game,"PlaceId")).." GameId="..str(get(game,"GameId")).." identity="..str(C.IdentityCheck),
         string.format("Elapsed=%.2fs frames=%d loops/sec=%.2f current/max visible=%d/%d cached=%d",elapsed,stats.frames,stats.frames/elapsed,stats.visible,stats.maxVisible,stats.cached),
@@ -182,12 +186,12 @@ local function report(copy)
         string.format("Frame/cache/drawing errors=%d/%d/%d refreshes=%d partRefreshes=%d stateRefreshes=%d excluded=%d capDropped=%d",stats.frameErrors,stats.cacheFailures,stats.drawErrors,stats.refreshes,stats.partRefreshes,stats.teamRefreshes,stats.excluded,stats.capacityDropped),
         string.format("Projection calls/errors=%d/%d skeletonUpdates=%d segmentDraws=%d headDotDraws=%d bodyReads=%d",stats.projections,stats.projectionErrors,stats.skeletonUpdates,stats.skeletonSegments,stats.headDots,stats.bodyReads),
         "Team="..str(C.LocalTeam).." localAimBlock="..str(C.LocalAimBlock).." enemiesOnly="..tostring(cfg.EnemiesOnly),
-        "Only current Characters descendants with confirmed player ownership or Bot=true, positive alive evidence and presentation=true are eligible. Stored/cull folders, dead/unknown bodies and historical rigs are excluded.",
+        "ESP requires a current live Characters model, confirmed owner/Bot, team and positive alive evidence. Optional explicit-false presentation is visual-only; unknown presentation and all stored/cull bodies are excluded. Aim still requires presentation=true.",
         "Team uses Player/character attributes, not names/skins/uniform inference. Conflicting teams are rejected.",
         string.format("ESP ordinary distance limit=%g (0=unlimited); aim-only distance=%g; extreme-position guard=%g",cfg.MaxDistance,cfg.AimMaxDistance,cfg.UnavailableDistance),
         string.format("Maximum successfully rendered body distance=%.1f; offscreen frames=%d range-rejected frames=%d extreme-position frames=%d minimum-size markers=%d",stats.farthestRendered,stats.offscreen,stats.range,stats.extremePositions,stats.minimumMarkers),
-        "No wall check. On-screen does not mean exposed. No automatic firing, key output, camera/memory writes, remotes or network requests.",
-        "RCS=experimental shot-triggered mouse pulse with adjustable return; no learned spray pattern or game spring hooks. Bunnyhop/auto-strafe remain unverified and not implemented.",
+        "ESP has no wall check. Aim has an optional experimental raycast gate; OFF still permits through-wall tracking. Optional held-key trigger firing uses confirmed centre-ray hits. No camera/memory writes, remotes or network requests.",
+        "RCS=experimental ammo-based mouse correction (sustained or legacy); no learned spray pattern or game spring hooks. Space hopping is an optional experimental key-pulse test; auto-strafe remains unimplemented.",
         "-- AIM --",
         "Enabled="..tostring(cfg.AimEnabled).." automatic="..tostring(cfg.AimAutomatic).." preview="..tostring(cfg.AimPreview).." key="..cfg.AimHoldKey.." gate="..str(A.gate).." beforeStopGate="..str(A.beforeStopGate),
         string.format("Acquisitions/losses=%d/%d mouseCalls/failures=%d/%d maxStep=%.3f acquireWaitLast=%s bodyAssisted=%d",A.acquisitions,A.losses,A.calls,A.failures,A.maxStep,str(A.lastAcquireWait),A.bodyAssisted),
@@ -230,6 +234,48 @@ local function report(copy)
         if good then for _,line in ipairs(audit) do rows[#rows+1]=line end
         else rows[#rows+1]="Roster range snapshot unavailable: "..str(audit) end
     end
+    rows[#rows+1]="-- ESP SCHEDULER / RANGE OBSERVATIONS --"
+    local cs=C.CacheScheduler
+    if cs then
+        rows[#rows+1]=string.format("Metadata slices=%d part slices=%d maintenance avg/max=%.3f/%.3fms work budget=%.1fms state limit=%d structural scans=%d budget/count stops=%d",cs.stateSlices,cs.partSlices,1000*cs.frameWork/math.max(1,cs.frames),1000*cs.frameMax,1000*cfg.CacheWorkBudget,cfg.CacheStatesPerFrame,cs.structures,cs.budgetStops)
+        rows[#rows+1]="Hidden live ESP="..tostring(cfg.ShowHiddenLive).." rendered frames="..cs.hiddenLiveFrames.." chams pose reads="..(FX.chamPoseReads or 0).." unified fill="..tostring(cfg.UnifiedChams).." unified frames="..(FX.unifiedFrames or 0).." stored observer polls/motion="..cs.pvsPolls.."/"..cs.pvsMoves
+        for _,p in pairs(cs.pvs) do
+            if p.location=="stored/cull" and p.opponent and p.at and clock()-p.at<3 then
+                rows[#rows+1]="STORED "..str(p.name).." localMode="..str(p.localMode).." health="..str(p.health).." samples="..(p.samples or 0).." coherent changes="..(p.changes or 0).." lastMotionAge="..(p.lastMotion and string.format("%.2fs",clock()-p.lastMotion) or "unobserved")
+            end
+        end
+    end
+    rows[#rows+1]="Stored motion is observational, not proof of fresh server positions. No stored rig is drawn or aimed at. No distance cull within the extreme-position guard. No raycast is used to hide ESP."
+    local W=C.WallCheck
+    rows[#rows+1]=string.format("Aim wall check=%s status=%s validHitObserved=%s calls/errors=%d/%d clear/blocked/unknown=%d/%d/%d ray cost avg/max=%.3f/%.3fms",tostring(cfg.AimWallCheck),W.status,tostring(W.validHit),W.calls,W.errors,W.clear,W.blocked,W.unknown,1000*W.total/math.max(1,W.calls),1000*W.max)
+    rows[#rows+1]="Wall check is experimental: raw Workspace:Raycast, no unverified filter constructors. Unknowns block aim. A no-hit result is accepted only after a valid segment hit has been observed. Viewmodels/glass/query geometry can still affect results; live testing required."
+    if C.Hop then local h=C.Hop
+        rows[#rows+1]="-- SPACE HOP TEST --"
+        rows[#rows+1]="Enabled="..tostring(cfg.SpaceHop).." gate="..str(h.gate).." owned="..tostring(h.owned).." presses/releases="..h.presses.."/"..h.releases.." press/release failures="..h.pressFailures.."/"..h.releaseFailures.." routes="..h.routes.." autoRearms="..h.autoRearms.." held/up samples="..h.heldSamples.."/"..h.upSamples
+        rows[#rows+1]="Space stays the game jump bind. No wheel output. Repeated bounded Space edges while observed held; input polling may include injected state. No grounded/landing proof or optimized air strafe. Life changes/stalls rearm automatically; menu/focus pauses may require Space release. Starts from standing or moving. Live hopping remains unverified."
+    end
+    if C.Hop and C.Hop.appendReport then C.Hop.appendReport(rows) end
+    if C.InputLifecycle then rows[#rows+1]="Input lifecycle epochs/resumes="..C.InputLifecycle.epochs.."/"..C.InputLifecycle.resumes.." state="..C.InputLifecycle.reason end
+    rows[#rows+1]="Prepared preset="..str(C.PresetVersion).."; RCS route refresh while outputting=0.75s; strengths are starting values, not calibrated weapon patterns"
+    rows[#rows+1]="-- RESPONSIVE INPUT / SUSTAINED RCS --"
+    rows[#rows+1]="Aim before geometry="..tostring(cfg.AimInputFirst).." fresh anchor samples="..(A.freshSamples or 0).." motion window="..(cfg.AimStableMotion and "160ms with reduced confidence after 80ms" or "80ms").." response setup revision="..str(C.ResponseUpgradeVersion)
+    rows[#rows+1]=string.format("Selected point age at native output attempt avg/max=%.2f/%.2fms samples=%d",1000*(A.nativeAgeTotal or 0)/math.max(1,A.nativeAgeCount or 0),1000*(A.nativeAgeMax or 0),A.nativeAgeCount or 0)
+    rows[#rows+1]="Sustained RCS="..tostring(cfg.RCSSustained).." debt X/Y="..str(R.debtX).."/"..str(R.debtY).." output X/Y="..str(R.sustainX).."/"..str(R.sustainY).." fire samples="..(R.fireSamples or 0).." trigger-proof samples="..(R.triggerProofSamples or 0)
+    rows[#rows+1]="Sustained mode applies fractional ammo-based correction without an upward return. Larger gaps discard pending work. No learned weapon spray pattern or zero-recoil claim."
+    if C.Trigger then local t=C.Trigger
+        rows[#rows+1]="-- TRIGGERBOT TEST --"
+        rows[#rows+1]="Enabled="..tostring(cfg.TriggerEnabled).." key="..cfg.TriggerHoldKey.." hitboxes="..cfg.TriggerPoint.." delay/interval="..cfg.TriggerDelay.."/"..cfg.TriggerInterval.." gate="..str(t.gate)
+        rows[#rows+1]="Clicks/failures="..t.calls.."/"..t.failures.." rays/errors="..t.rays.."/"..t.rayErrors.." first-hit body misses="..t.blocked.." acquisitions="..t.acquisitions
+        rows[#rows+1]="Bind held/up/errors="..t.heldSamples.."/"..t.upSamples.."/"..t.keyErrors.." matched cached/current/root="..t.directMatches.."/"..t.refreshedMatches.."/"..t.rootMatches
+        rows[#rows+1]="First-hit only. Current direct body parts qualify; a root hit must also lie inside a current torso volume. Unknowns/no hit/cover block firing. No obstruction skipping. Atomic mouse1click only; live accuracy unverified."
+        for reason,count in pairs(t.gates) do rows[#rows+1]="TRIGGER GATE "..reason.."="..count end
+        for _,line in ipairs(t.gateHistory) do rows[#rows+1]="TRIGGER STATE "..line end
+        for _,key in ipairs(t.hitOrder) do local hit=t.hits[key]
+            rows[#rows+1]=string.format("TRIGGER HIT count=%d first/last=%.3f/%.3fs along=%.2f pos=%s %s",hit.count,hit.first,hit.last,hit.along,hit.position,hit.description)
+        end
+        rows[#rows+1]="Hit detail limit=24 recent identities/matches; evicted records="..t.hitEvicted..". Counts cover retained probe observations, not elapsed time or unique shots. Paths/ancestry describe first observations; positions/times update."
+        for _,line in ipairs(t.history) do rows[#rows+1]="TRIGGER "..line end
+    end
     rows[#rows+1]="-- REJECTIONS / AIM GATES --"
     for reason,count in pairs(C.Rejections or {}) do rows[#rows+1]="BODY REJECT "..reason.."="..count end
     for reason,count in pairs(A.gates) do rows[#rows+1]="AIM GATE "..reason.."="..count end
@@ -255,6 +301,8 @@ end
 C.Report=report
 
 function C.Stop(reason)
+    cfg.TriggerEnabled=false;if C.Trigger then C.Trigger.cancel("client stopped");C.Trigger.lastClick=nil end
+    cfg.SpaceHop=false;if C.Hop then C.Hop.cleanup("client stopped") end
     if C.StoppedAt then removeAll(); return end
     C.Running=false; C.StoppedAt=clock(); C.State="stopped: "..str(reason)
     A.beforeStopGate=A.gate; resetAim("stopped"); R.beforeStopGate=R.gate; if R.cancel then R.cancel("stopped") end
@@ -285,7 +333,7 @@ local function liveParent(model)
     if same(parent,root) then return true end
     return parent~=nil and containers[get(parent,"Name")]==true and same(get(parent,"Parent"),root)
 end
-local function modelState(e)
+local function modelState(e,visualOnly)
     local model,owner=e.model,e.owner
     local mt=teamName(attribute(model,"Team")); local pt=owner and readLocalTeam(owner)
     e.team=pt or mt
@@ -304,7 +352,7 @@ local function modelState(e)
     if e.dead==true or pd==true then return "dead" end
     if (finite(e.health) and e.health<=0) or (finite(ph) and ph<=0) then return "zero health" end
     if not ((finite(e.health) and e.health>0 and e.dead==false) or (finite(ph) and ph>0 and pd==false)) then return "alive state unconfirmed" end
-    if e.presentation~=true then return "presentation hidden or unavailable" end
+    if e.presentation~=true and not (visualOnly and cfg.ShowHiddenLive and e.presentation==false) then return "presentation hidden or unavailable" end
 end
 local bodyNames={head=true,uppertorso=true,lowertorso=true,leftupperarm=true,rightupperarm=true,
     leftlowerarm=true,rightlowerarm=true,lefthand=true,righthand=true,leftupperleg=true,
@@ -339,83 +387,128 @@ local function selectRenderParts(parts)
     return result
 end
 local roster,player,rosterList,ownerMap,nextRoster=nil,nil,{},{},0
+local CS={queue={},stateCursor=1,partCursor=1,pvsCursor=1,frameWork=0,frameMax=0,frames=0,
+    stateSlices=0,partSlices=0,budgetStops=0,structures=0,hiddenLiveFrames=0,
+    pvs={},pvsPolls=0,pvsMoves=0,playerChars={}}
+C.CacheScheduler=CS
+local function localState(now)
+    localCharacter=get(player,"Character")
+    if now<nextLocalState then return end
+    nextLocalState=now+cfg.LocalStateInterval;C.LocalAimBlock=nil
+    local health=attribute(player,"Health");local dead=attribute(player,"Dead");local spectating=attribute(player,"IsSpectating")
+    if not localCharacter or not liveParent(localCharacter) then C.LocalAimBlock="local character not live"
+    elseif spectating==true then C.LocalAimBlock="local spectator"
+    elseif dead~=false or not finite(health) or health<=0 then C.LocalAimBlock="local alive state unconfirmed/dead" end
+    local team=readLocalTeam(player)
+    if team~=C.LocalTeam then C.LocalTeam=team;ui.dirty=true;resetAim("local team changed");hideAll() end
+end
 local function refresh()
-    local now=clock()
-    world=world or game:GetService("Workspace"); assert(world,"Workspace unavailable")
+    local now=clock();CS.structures=CS.structures+1
+    world=world or game:GetService("Workspace");assert(world,"Workspace unavailable")
     if not root or not same(get(root,"Parent"),world) or get(root,"Name")~="Characters" then
         local nextRoot
-        for _,obj in ipairs(children(world) or {}) do if get(obj,"Name")=="Characters" then nextRoot=obj; break end end
-        root=nextRoot; entryMap={}; hideAll()
+        for _,o in ipairs(children(world) or {}) do if get(o,"Name")=="Characters" then nextRoot=o;break end end
+        root=nextRoot;entryMap={};CS.queue={};hideAll()
     end
-    roster=roster or game:GetService("Players"); player=player or get(roster,"LocalPlayer")
-    localCharacter=get(player,"Character")
-    if now>=nextLocalState then
-        nextLocalState=now+cfg.LocalStateInterval; C.LocalAimBlock=nil
-        local health=attribute(player,"Health"); local dead=attribute(player,"Dead"); local spectating=attribute(player,"IsSpectating")
-        if not localCharacter or not liveParent(localCharacter) then C.LocalAimBlock="local character not live"
-        elseif spectating==true then C.LocalAimBlock="local spectator"
-        elseif dead~=false or not finite(health) or health<=0 then C.LocalAimBlock="local alive state unconfirmed/dead" end
-        local nextTeam=readLocalTeam(player)
-        if nextTeam~=C.LocalTeam then C.LocalTeam=nextTeam; ui.dirty=true; resetAim("local team changed"); hideAll() end
-    end
+    roster=roster or game:GetService("Players");player=player or get(roster,"LocalPlayer")
+    localState(now)
     if now>=nextRoster then
         nextRoster=now+cfg.RosterInterval
         local ok,list=pcall(function() return roster:GetPlayers() end)
-        if not ok or type(list)~="table" then
-            list={}; for _,obj in ipairs(children(roster) or {}) do if get(obj,"ClassName")=="Player" then list[#list+1]=obj end end
-        end
-        rosterList={}
-        for i=1,math.min(#list,cfg.MaxPlayers) do rosterList[#rosterList+1]=list[i] end
+        if not ok or type(list)~="table" then list={};for _,o in ipairs(children(roster) or {}) do if get(o,"ClassName")=="Player" then list[#list+1]=o end end end
+        rosterList={};for i=1,math.min(#list,cfg.MaxPlayers) do rosterList[#rosterList+1]=list[i] end
     end
-    -- Refresh current Character references cheaply; never match player ownership by name.
-    ownerMap={}
-    for _,p in ipairs(rosterList) do local char=get(p,"Character"); if char then ownerMap[id(char)]=p end end
+    ownerMap={};CS.playerChars={}
+    for _,p in ipairs(rosterList) do local char=get(p,"Character");CS.playerChars[p]=char;if char then ownerMap[id(char)]=p end end
     local models={}
-    for _,obj in ipairs(children(root) or {}) do
-        local name=get(obj,"Name"); local class=get(obj,"ClassName")
+    for _,o in ipairs(children(root) or {}) do
+        local name=get(o,"Name");local class=get(o,"ClassName")
         if containers[name] then
-            for _,child in ipairs(children(obj) or {}) do
+            for _,m in ipairs(children(o) or {}) do
                 if #models>=cfg.MaxDiscoveryModels then break end
-                if get(child,"ClassName")=="Model" then models[#models+1]=child end
+                if get(m,"ClassName")=="Model" then models[#models+1]=m end
             end
-        elseif class=="Model" then models[#models+1]=obj end
+        elseif class=="Model" then models[#models+1]=o end
         if #models>=cfg.MaxDiscoveryModels then break end
     end
-    local nextEntries,nextMap,seen={},{},{}; C.Rejections={}; stats.excluded=0
-    for _,model in ipairs(models) do
-        local key=id(model)
-        if not seen[key] and liveParent(model) and not same(model,localCharacter) then
+    local nextMap,list,seen={},{},{}
+    for _,m in ipairs(models) do local key=id(m)
+        if not seen[key] and liveParent(m) and not same(m,localCharacter) then
             seen[key]=true
-            local e=entryMap[key] or {model=model,key=key,name=str(get(model,"Name"),80),parts={},nextParts=0,nextTeam=0,firstSeen=now}
-            local nextOwner=ownerMap[key]
-            if not (same(e.owner,nextOwner) or (e.owner==nil and nextOwner==nil)) then e.nextTeam=0 end
-            if e.owner~=nextOwner or not e.label then e.label=nextOwner and str(get(nextOwner,"Name"),80) or ("BOT "..e.name) end
-            e.owner=nextOwner
-            if now>=e.nextTeam then
-                e.blocked=modelState(e); e.nextTeam=now+((e.blocked=="presentation hidden or unavailable" and now-e.firstSeen<.6) and math.min(cfg.TeamInterval,cfg.CacheInterval) or cfg.TeamInterval); stats.teamRefreshes=stats.teamRefreshes+1
-            elseif e.owner and not same(get(e.owner,"Character"),model) then e.blocked="owner character reference changed" end
-            if not e.blocked and now>=e.nextParts then
-                e.parts=collect(model,children(model) or {}); e.renderParts=selectRenderParts(e.parts)
-                e.nextParts=now+(#e.parts==15 and cfg.PartsInterval or cfg.PartialPartsInterval)
-                stats.partRefreshes=stats.partRefreshes+1
-                if not e.renderParts[1] then e.blocked="body anchors unavailable"; e.nextTeam=0 end
-            end
-            nextMap[key]=e
-            if not e.blocked then nextEntries[#nextEntries+1]=e
-            else stats.excluded=stats.excluded+1; C.Rejections[e.blocked]=(C.Rejections[e.blocked] or 0)+1 end
+            local e=entryMap[key] or {model=m,key=key,name=str(get(m,"Name"),80),parts={},nextParts=0,nextTeam=0,firstSeen=now,blocked="awaiting state slice"}
+            local owner=ownerMap[key]
+            if not (same(e.owner,owner) or (e.owner==nil and owner==nil)) then e.nextTeam=0 end
+            if e.owner~=owner or not e.label then e.label=owner and str(get(owner,"Name"),80) or ("BOT "..e.name) end
+            e.owner=owner;nextMap[key]=e;list[#list+1]=e
         end
     end
-    table.sort(nextEntries,function(a,b)
-        local x,y=a.distance or math.huge,b.distance or math.huge
-        if x==y then return a.name<b.name end
-        return x<y
-    end)
-    stats.capacityDropped=math.max(0,#nextEntries-cfg.MaxTargets)
-    while #nextEntries>cfg.MaxTargets do table.remove(nextEntries) end
-    entries=nextEntries; entryMap=nextMap; C.Entries=entries
-    stats.cached=#entries; stats.maxCached=math.max(stats.maxCached,#entries)
+    entryMap=nextMap;CS.queue=list
+    CS.stateCursor=math.min(CS.stateCursor,math.max(1,#list));CS.partCursor=math.min(CS.partCursor,math.max(1,#list))
     C.State=root and "tracking" or "waiting for Workspace.Characters"
 end
+local function maintainCache(now)
+    local before=clock();local list=CS.queue;local n=#list;local done=0
+    for _=1,n do
+        local index=CS.stateCursor;CS.stateCursor=index%n+1;local e=list[index]
+        if now>=e.nextTeam then
+            e.blocked=modelState(e,true)
+            e.nextTeam=clock()+((e.blocked=="presentation hidden or unavailable" and now-e.firstSeen<.6) and math.min(cfg.TeamInterval,cfg.CacheInterval) or cfg.TeamInterval)
+            stats.teamRefreshes=stats.teamRefreshes+1;CS.stateSlices=CS.stateSlices+1;done=done+1
+            if done>=cfg.CacheStatesPerFrame or clock()-before>=cfg.CacheWorkBudget then CS.budgetStops=CS.budgetStops+1;break end
+        end
+    end
+    if clock()-before<cfg.CacheWorkBudget or CS.frames%3==0 then
+        for _=1,n do
+            local index=CS.partCursor;CS.partCursor=index%n+1;local e=list[index]
+            if not e.blocked and now>=e.nextParts then
+                e.parts=collect(e.model,children(e.model) or {});e.renderParts=selectRenderParts(e.parts);e.chamPose=nil
+                e.nextParts=clock()+(#e.parts==15 and cfg.PartsInterval or cfg.PartialPartsInterval)
+                stats.partRefreshes=stats.partRefreshes+1;CS.partSlices=CS.partSlices+1
+                if not e.renderParts[1] then e.blocked="body anchors unavailable";e.nextTeam=0 end
+                break -- A full native part enumeration is one indivisible operation.
+            end
+        end
+    end
+    local fresh={};C.Rejections={};stats.excluded=0;CS.pending=0;CS.pendingSince=nil
+    for _,e in ipairs(list) do
+        if e.blocked=="awaiting state slice" or (not e.blocked and (not e.renderParts or not e.renderParts[1])) then
+            CS.pending=CS.pending+1;CS.pendingSince=math.min(CS.pendingSince or now,e.firstSeen)
+        end
+        if not e.blocked and e.renderParts and e.renderParts[1] then fresh[#fresh+1]=e
+        else stats.excluded=stats.excluded+1;local why=e.blocked or "awaiting part slice";C.Rejections[why]=(C.Rejections[why] or 0)+1 end
+    end
+    table.sort(fresh,function(a,b) local x,y=a.distance or math.huge,b.distance or math.huge;if x==y then return a.name<b.name end;return x<y end)
+    stats.capacityDropped=math.max(0,#fresh-cfg.MaxTargets);while #fresh>cfg.MaxTargets do table.remove(fresh) end
+    entries=fresh;C.Entries=entries;stats.cached=#entries;stats.maxCached=math.max(stats.maxCached,#entries)
+    local elapsed=clock()-before;CS.frames=CS.frames+1;CS.frameWork=CS.frameWork+elapsed;CS.frameMax=math.max(CS.frameMax,elapsed)
+end
+-- Bounded passive observation: stored models never enter ESP or aim.
+local function observePVS(now)
+    local n=#rosterList;if n==0 then return end
+    CS.pvsCursor=(CS.pvsCursor-1)%n+1;local p=rosterList[CS.pvsCursor];CS.pvsCursor=CS.pvsCursor%n+1
+    if same(p,player) then return end
+    local key=id(p);local rec=CS.pvs[key]
+    if rec and now<(rec.nextPoll or 0) then return end
+    rec=rec or {};CS.pvs[key]=rec;rec.nextPoll=now+.35;rec.at=now;CS.pvsPolls=CS.pvsPolls+1
+    local char=CS.playerChars[p];local parent=get(char,"Parent")
+    rec.location=liveParent(char) and "live" or (get(parent,"Name")=="_PVS_CulledCharacters" and "stored/cull" or "unavailable")
+    if rec.location~="stored/cull" then rec.head=nil;rec.torso=nil;rec.lastMotion=nil;rec.samples=0;return end
+    rec.name=str(get(p,"Name"),80);rec.team=readLocalTeam(p);rec.health=attribute(p,"Health");rec.dead=attribute(p,"Dead")
+    rec.localMode=C.LocalAimBlock or "alive";rec.opponent=C.LocalTeam and rec.team and C.LocalTeam~=rec.team
+    if not rec.opponent or not finite(rec.health) or rec.health<=0 or rec.dead~=false then rec.head=nil;rec.torso=nil;return end
+    local ok,h,t=pcall(function() return char:FindFirstChild("Head"),char:FindFirstChild("UpperTorso") end)
+    local hp,tp=ok and xyz(get(h,"Position")),ok and xyz(get(t,"Position"))
+    if not hp or not tp or not same(get(h,"Parent"),char) or not same(get(t,"Parent"),char) then rec.head=nil;rec.torso=nil;return end
+    if rec.char~=id(char) then rec.head=nil;rec.torso=nil;rec.lastMotion=nil;rec.changes=0;rec.samples=0 end
+    if rec.char==id(char) and rec.head and rec.torso then
+        local dx,dy,dz=hp[1]-rec.head[1],hp[2]-rec.head[2],hp[3]-rec.head[3]
+        local tx,ty,tz=tp[1]-rec.torso[1],tp[2]-rec.torso[2],tp[3]-rec.torso[3]
+        local step=math.sqrt(dx*dx+dy*dy+dz*dz)
+        if step>.02 and step<20 and math.sqrt((dx-tx)^2+(dy-ty)^2+(dz-tz)^2)<1 then rec.lastMotion=now;rec.changes=(rec.changes or 0)+1;CS.pvsMoves=CS.pvsMoves+1 end
+    end
+    rec.char=id(char);rec.head=hp;rec.torso=tp;rec.samples=(rec.samples or 0)+1
+end
+C.CacheMaintain=maintainCache
 
 -- Read only when the user requests a report. Stored coordinates are diagnostic
 -- observations, never admitted to the rendering/aim cache as live positions.
@@ -644,6 +737,7 @@ local function geometry(e,camPos,vw,vh)
     left,top=clamp(left-cfg.Padding,0,vw),clamp(top-cfg.Padding,0,vh)
     right,bottom=clamp(right+cfg.Padding,0,vw),clamp(bottom+cfg.Padding,0,vh)
     if right-left<1 or bottom-top<1 then e.state="tiny projection"; return nil end
+    if e.presentation==false then CS.hiddenLiveFrames=CS.hiddenLiveFrames+1 end
     e.state="rendered"; e.lastBox={left,top,right,bottom}; e.bodyBounds=b; e.positionReadAt=clock()
     stats.farthestRendered=math.max(stats.farthestRendered,e.distance)
     if not e.firstVisible then e.firstVisible=clock(); e.discoveryToVisible=e.firstVisible-e.firstSeen end
@@ -790,7 +884,94 @@ end
 local function aimIdle(reason)
     resetAim(reason); hideAim(); A.lastTick=clock(); recordAimGate()
 end
+-- Documented two-argument Raycast path. No undocumented filter constructors.
+local W={calls=0,errors=0,clear=0,blocked=0,unknown=0,validHit=false,status="OFF",cache={},frameCalls=0,nextRetry=0,total=0,max=0}
+C.WallCheck=W
+function W.check(e,p,fresh)
+    if not cfg.AimWallCheck then W.status="OFF";return true end
+    local now=clock();local origin=xyz(get(camera,"Position"))
+    if not origin or not p then W.status="unknown: camera/point unavailable";W.unknown=W.unknown+1;return false end
+    local prior=W.cache[e.key]
+    if not fresh and prior and now-prior.at<.04 then
+        local o,q=prior.origin,prior.point
+        if math.abs(o[1]-origin[1])+math.abs(o[2]-origin[2])+math.abs(o[3]-origin[3])<.2 and math.abs(q[1]-p[1])+math.abs(q[2]-p[2])+math.abs(q[3]-p[3])<.2 then W.status=prior.status;return prior.clear end
+    end
+    if now<W.nextRetry or W.frameCalls>=4 then W.status="unknown: ray unavailable or frame budget";W.unknown=W.unknown+1;return false end
+    local dx,dy,dz=p[1]-origin[1],p[2]-origin[2],p[3]-origin[3];local length=math.sqrt(dx*dx+dy*dy+dz*dz)
+    if length<.01 then W.status="unknown: zero length ray";return false end
+    W.frameCalls=W.frameCalls+1;W.calls=W.calls+1;local before=clock()
+    local ok,hit=pcall(function() return world:Raycast(Vector3.new(origin[1],origin[2],origin[3]),Vector3.new(dx,dy,dz)) end)
+    local cost=clock()-before;W.total=W.total+cost;W.max=math.max(W.max,cost)
+    local clear=false
+    if not ok then
+        W.errors=W.errors+1;W.status="unknown: Raycast call failed";W.nextRetry=now+1
+    elseif hit==nil then
+        clear=W.validHit;W.status=clear and "clear: no obstruction hit" or "unknown: no valid ray hit observed yet"
+    else
+        local instance=get(hit,"Instance");local pos=xyz(get(hit,"Position"));local className=get(instance,"ClassName")
+        if instance and type(className)=="string" and pos then
+            local hx,hy,hz=pos[1]-origin[1],pos[2]-origin[2],pos[3]-origin[3]
+            local along=(hx*dx+hy*dy+hz*dz)/length
+            local px,py,pz=hx-dx*along/length,hy-dy*along/length,hz-dz*along/length
+            if along>=-.05 and along<=length+.25 and px*px+py*py+pz*pz<=.25 then
+                W.validHit=true
+                local parent=instance
+                for _=1,6 do if same(parent,e.model) then clear=true;break end;parent=get(parent,"Parent");if not parent then break end end
+                W.status=clear and "clear: ray hit current target" or "blocked: another instance hit first"
+            else W.status="unknown: ray result outside requested segment" end
+        else W.status="unknown: unreadable ray hit fields" end
+    end
+    if clear then W.clear=W.clear+1 elseif W.status:sub(1,7)=="blocked" then W.blocked=W.blocked+1 else W.unknown=W.unknown+1 end
+    W.cache[e.key]={at=now,origin=origin,point={p[1],p[2],p[3]},clear=clear,status=W.status}
+    return clear
+end
+
+-- Input selection uses fresh cached body parts, independently of ESP boxes.
+function A.freshCandidate(e,vw,vh,radius,acquiring)
+    if e.presentation~=true then return nil,"presentation hidden: visual-only body" end
+    if e.blocked then return nil,e.blocked end
+    if not C.LocalTeam or not e.team then return nil,"local/target team unavailable" end
+    if e.team==C.LocalTeam then return nil,"teammate team" end
+    if not liveParent(e.model) or (e.owner and not same(get(e.owner,"Character"),e.model)) then return nil,"no current live body" end
+    local selected,upper,lower
+    for _,part in ipairs(e.parts or {}) do
+        if part.name=="uppertorso" then upper=part end
+        if part.name=="lowertorso" then lower=part end
+        if cfg.AimPoint=="Head" and part.name=="head" then selected=part end
+    end
+    if cfg.AimPoint=="Chest" then selected=upper elseif cfg.AimPoint=="Torso" then selected=upper or lower end
+    if not selected then return nil,"selected aim part unavailable / cache warming" end
+    local p=readBodyPosition(e,selected)
+    local sampleAt=clock()
+    local anchor=p
+    if selected~=upper and upper then anchor=readBodyPosition(e,upper) end
+    if not p or not anchor then return nil,"selected aim anchor unavailable" end
+    local source=cfg.AimPoint=="Head" and "Head center" or (cfg.AimPoint=="Chest" and "UpperTorso center" or "Torso center mass")
+    if cfg.AimPoint=="Torso" and upper and lower then
+        local q=selected==lower and p or readBodyPosition(e,lower)
+        if q then p={(p[1]+q[1])/2,(p[2]+q[2])/2,(p[3]+q[3])/2} end
+    end
+    if math.max(math.abs(p[1]-anchor[1]),math.abs(p[2]-anchor[2]),math.abs(p[3]-anchor[3]))>cfg.MaxBodySpan then return nil,"selected point outside compact body" end
+    local origin=C.AimCameraOrigin or xyz(get(camera,"Position"))
+    if not origin then return nil,"camera position unavailable" end
+    local worldDistance=math.sqrt((p[1]-origin[1])^2+(p[2]-origin[2])^2+(p[3]-origin[3])^2)
+    if cfg.AimMaxDistance>0 and worldDistance>cfg.AimMaxDistance then return nil,"beyond aim distance limit" end
+    local sx,sy=project(p[1],p[2],p[3]);if not sx then return nil,"selected aim point projects offscreen" end
+    local dx,dy=sx-vw/2,sy-vh/2;local distance=math.sqrt(dx*dx+dy*dy)
+    local assisted=false
+    if distance>radius and acquiring and cfg.AimBodyAcquire and distance<=cfg.AimTrackRadius and e.lastBox then
+        local b=e.lastBox;local bx=clamp(vw/2,b[1],b[3])-vw/2;local by=clamp(vh/2,b[2],b[4])-vh/2
+        assisted=bx*bx+by*by<=radius*radius
+    end
+    if distance>radius and not assisted then return nil,"outside acquisition/tracking radius",distance,"outside acquisition/tracking radius" end
+    if not W.check(e,p,false) then return nil,"wall check: "..W.status end
+    A.freshSamples=(A.freshSamples or 0)+1
+    return {entry=e,x=sx,y=sy,dx=dx,dy=dy,error=distance,source=source,world=p,sampleAt=sampleAt,bodyAssisted=assisted}
+end
+
 local function aimCandidate(e,vw,vh,radius,acquiring)
+    if cfg.AimInputFirst then return A.freshCandidate(e,vw,vh,radius,acquiring) end
+    if e.presentation~=true then return nil,"presentation hidden: visual-only body" end
     if not C.LocalTeam then return nil,"local team unavailable" end
     if not e.team then return nil,"unknown/conflicting team" end
     if e.team==C.LocalTeam then return nil,"teammate team" end
@@ -815,6 +996,7 @@ local function aimCandidate(e,vw,vh,radius,acquiring)
     if not p then return nil,"selected "..cfg.AimPoint.." position unavailable" end
     local x,y,z=p[1],p[2],p[3]
     if cfg.AimPoint=="Torso" and upper and lower then x=(upper[1]+lower[1])/2; y=(upper[2]+lower[2])/2; z=(upper[3]+lower[3])/2 end
+    if not W.check(e,{x,y,z},false) then return nil,"wall check: "..W.status end
     local anchor=e.framePositions[e.anchorName]
     if not anchor or math.max(math.abs(x-anchor[1]),math.abs(y-anchor[2]),math.abs(z-anchor[3]))>cfg.MaxBodySpan then return nil,"selected point outside compact body" end
     local sx,sy=project(x,y,z)
@@ -837,11 +1019,11 @@ function A.response(target,now,dt)
     local prior=A.motion
     local nextSample={key=target.entry.key,source=target.source,camera=id(camera),point=target.world,time=target.sampleAt or now,vx=0,vy=0}
     local valid=false
-    if prior and prior.key==nextSample.key and prior.source==nextSample.source and prior.camera==nextSample.camera and dt>0 and dt<=.08 then
+    if prior and prior.key==nextSample.key and prior.source==nextSample.source and prior.camera==nextSample.camera and dt>0 and dt<=(cfg.AimStableMotion and .16 or .08) then
         local elapsed=nextSample.time-prior.time
         local p,q=prior.point,target.world
         local distance=math.sqrt((q[1]-p[1])^2+(q[2]-p[2])^2+(q[3]-p[3])^2)
-        if elapsed>=.001 and elapsed<=.08 and distance/elapsed<=120 then
+        if elapsed>=.001 and elapsed<=(cfg.AimStableMotion and .16 or .08) and distance/elapsed<=120 then
             local px,py=project(p[1],p[2],p[3])
             if px then
                 local vx,vy=(target.x-px)/elapsed,(target.y-py)/elapsed
@@ -851,6 +1033,7 @@ function A.response(target,now,dt)
                     if vx*prior.vx+vy*prior.vy<=0 or vx*vx+vy*vy<1 then weight=1 end
                     nextSample.vx=prior.vx+(vx-prior.vx)*weight
                     nextSample.vy=prior.vy+(vy-prior.vy)*weight
+                    if cfg.AimStableMotion and elapsed>.08 then local confidence=.08/elapsed;nextSample.vx=nextSample.vx*confidence;nextSample.vy=nextSample.vy*confidence end
                     valid=true
                 end
             end
@@ -914,6 +1097,7 @@ local function aimStep(now,vw,vh)
     else
         A.heldFrames=A.heldFrames+1; A.eligible=0
         if not A.selected then
+            if not cfg.AimInputFirst and CS.pending>0 and CS.pendingSince and now-CS.pendingSince<.15 then A.gate="body cache warming";recordAimGate();return end
             if not A.waitStarted then A.waitStarted=now end
             A.acquireScans=A.acquireScans+1; A.closestDistance=nil; A.closestName=nil; A.lastRejects={}
             local best
@@ -935,7 +1119,7 @@ local function aimStep(now,vw,vh)
                 A.acquireWaitMax=math.max(A.acquireWaitMax,A.lastAcquireWait); A.waitStarted=nil
                 if best.bodyAssisted then A.bodyAssisted=A.bodyAssisted+1 end
                 A.rx=0; A.ry=0; A.motion=nil; A.acquiredAt=now; target=best
-                event("Aim acquired body "..best.entry.name.." (opposing team attributes, visibility NOT checked)")
+                event("Aim acquired body "..best.entry.name..(cfg.AimWallCheck and " (opposing team attributes; experimental ray gate)" or " (opposing team attributes, visibility NOT checked)"))
             else
                 A.emptyScans=A.emptyScans+1; A.rx=0; A.ry=0
                 A.gate="waiting: move the selected enemy aim point inside the small circle"
@@ -947,10 +1131,17 @@ local function aimStep(now,vw,vh)
         end
         if target then
             local blocked=modelState(target.entry)
+            if not blocked and not W.check(target.entry,target.world,true) then blocked="wall check: "..W.status end
             local localDead=attribute(player,"Dead"); local localHealth=attribute(player,"Health")
             if blocked or not target.entry.team or target.entry.team==readLocalTeam(player) or localDead~=false or not finite(localHealth) or localHealth<=0 then
                 resetAim(blocked or "target/local state changed"); target=nil
             end
+        end
+        if target and cfg.AimInputFirst then
+            -- Refresh after state validation, before computing the correction.
+            local fresh=A.freshCandidate(target.entry,vw,vh,cfg.AimTrackRadius,false)
+            if fresh and W.check(fresh.entry,fresh.world,true) then target=fresh
+            else resetAim("fresh aim sample unavailable / wall gate");target=nil end
         end
         if target then
             A.lastError=target.error; A.lastTarget=target.entry.name; A.lastPointSource=target.source
@@ -993,8 +1184,9 @@ local function aimStep(now,vw,vh)
                 A.rx=clamp(x-ix,-1,1); A.ry=clamp(y-iy,-1,1)
                 if cfg.AimInvertX then ix=-ix end
                 if cfg.AimInvertY then iy=-iy end
-                A.gate=(cfg.AimAutomatic and "automatic tracking" or "tracking held target").." (no wall check)"
+                A.gate=(cfg.AimAutomatic and "automatic tracking" or "tracking held target")..(cfg.AimWallCheck and " (experimental wall check)" or " (no wall check)")
                 if ix~=0 or iy~=0 then
+                    A.outputSampleAt=target.sampleAt
                     local ok,result=pcall(R.aimOutput,ix,iy); A.calls=A.calls+1
                     if not ok or result==false then
                         A.failures=A.failures+1; A.fault="mousemoverel failed; see report"; cfg.AimEnabled=false
@@ -1217,18 +1409,24 @@ function R.cancel(reason)
     end
     R.wasArmed=false; R.active=false; R.pulses={}; R.appliedX=0; R.appliedY=0
     R.sprayY=0; R.lastShot=nil; R.magIndex=0; R.magStart=nil
+    R.debtX=0;R.debtY=0
     R.prev=nil; R.aimX=0; R.aimY=0; R.gate=reason
     R.gates[reason]=(R.gates[reason] or 0)+1
 end
 function R.send(x,y)
-    if not R.routingReady then
+    if not R.routingReady or (R.active and clock()>=(R.routeUntil or 0)) then
         if type(setrobloxinput)=="function" then
             R.routeRequests=R.routeRequests+1
             local good,result=pcall(setrobloxinput,true)
             assert(good and result~=false,"game input routing rejected")
             R.routing="enable requested"
         else R.routing="routing API unavailable; existing route" end
-        R.routingReady=true
+        R.routingReady=true;R.routeUntil=clock()+.75
+    end
+    if A.outputSampleAt then
+        local age=math.max(0,clock()-A.outputSampleAt)
+        A.nativeAgeTotal=(A.nativeAgeTotal or 0)+age;A.nativeAgeMax=math.max(A.nativeAgeMax or 0,age);A.nativeAgeCount=(A.nativeAgeCount or 0)+1
+        A.outputSampleAt=nil
     end
     R.outputCalls=R.outputCalls+1
     local result=mousemoverel(x,y)
@@ -1272,13 +1470,13 @@ end
 function R.AppendReport(rows,copy)
     rows[#rows+1]="-- EXPERIMENTAL RCS --"
     rows[#rows+1]="Enabled="..tostring(cfg.RCSEnabled).." allowedProfile="..tostring(cfg.RCSProfileAllowed).." gate="..str(R.gate).." beforeStopGate="..str(R.beforeStopGate)
-    rows[#rows+1]=string.format("Vertical/horizontal pulse=%.3f/%.3f deg return=%.3fs buildUp=%.3f deg/ammo buildRecovery=%.3fs",cfg.RCSVertical,cfg.RCSHorizontal,cfg.RCSReturnTime,cfg.RCSBuildUp,cfg.RCSBuildRecovery)
+    rows[#rows+1]=string.format("Vertical/horizontal per-ammo=%.3f/%.3f deg legacyReturn=%.3fs buildUp=%.3f deg/ammo buildRecovery=%.3fs",cfg.RCSVertical,cfg.RCSHorizontal,cfg.RCSReturnTime,cfg.RCSBuildUp,cfg.RCSBuildRecovery)
     rows[#rows+1]=string.format("Confirmed ammo decreases=%d events=%d skipped=%d correctionFrames=%d interrupted=%d pendingPulses=%d offset=%d/%d buildOffset=%.3f",R.shots,R.events,R.skipped,R.correctionFrames,R.interruptions,#R.pulses,R.appliedX,R.appliedY,R.sprayY)
     rows[#rows+1]=string.format("Auto rearms=%d routeRequests=%d contextEpoch=%d lastRearm=%s",R.rearms,R.routeRequests,R.contextEpoch,str(R.lastRearmReason))
     rows[#rows+1]=string.format("Native output calls=%d combinedCalls=%d failures=%d maxCombined=%.3f clamps offset/step/aim=%d/%d/%d routing=%s",R.outputCalls,R.combinedCalls,R.failures,R.maxCombined,R.offsetClamps,R.stepClamps,R.aimClamps,str(R.routing))
     rows[#rows+1]=string.format("Calibration yaw/pitch=%.8f/%.8f deg/unit FOV=%g source=%s",cfg.RCSYawPerUnit,cfg.RCSPitchPerUnit,cfg.RCSFOV,str(R.calibrationStatus))
-    rows[#rows+1]="Aim mouseCalls count requests while RCS is armed; native output calls above count merged attempts. Manual RMB + LMB is required for new shot corrections."
-    rows[#rows+1]="RCS strength X="..cfg.RCSXStrength.."% Y="..cfg.RCSYStrength.."% model="..(cfg.RCSStrengthModel and "stronger transient + spray build-up; exponential return" or "legacy")
+    rows[#rows+1]="Aim mouseCalls count requests while RCS is armed; native output calls above count merged attempts. Calibrated RMB plus manual LMB or a recent confirmed trigger click is required for new corrections."
+    rows[#rows+1]="RCS strength X="..cfg.RCSXStrength.."% Y="..cfg.RCSYStrength.."% model="..(cfg.RCSSustained and "sustained per-ammo correction; no automatic return" or (cfg.RCSStrengthModel and "stronger transient + spray build-up; exponential return" or "legacy"))
     rows[#rows+1]="Strength controls scale a provisional shot-triggered model, not a verified weapon spray pattern. X adjusts a fixed lateral bias; it cannot predict random horizontal sway. Both sliders use 0..100%; zero produces no correction on that axis. Near-zero recoil is not established."
     for _,name in ipairs(P.Names) do
         local p=P.Profiles[name]
@@ -1301,6 +1499,42 @@ function R.AppendReport(rows,copy)
     end
     rows[#rows+1]="Spray samples="..#R.shotRows.." path="..R.sprayPath.." export="..R.spraySaved
 end
+-- Accumulated fractional shot debt. No upward transient return during a spray.
+function R.sustain(now,previous,rounds,firing,reloading,ammoIncrease,dt,name,identifier)
+    R.debtX=R.debtX or 0;R.debtY=R.debtY or 0
+    R.sustainFrames=(R.sustainFrames or 0)+1
+    if firing then R.fireSamples=(R.fireSamples or 0)+1 end
+    if not firing or reloading==true or ammoIncrease then
+        R.debtX=0;R.debtY=0;R.requestX=0;R.requestY=0
+        R.gate=reloading==true and "reload: no recoil output" or "RMB held; waiting for manual fire"
+        R.gates[R.gate]=(R.gates[R.gate] or 0)+1;return
+    end
+    if previous and rounds<previous.rounds then
+        local drop=previous.rounds-rounds
+        local age=previous.at and clock()-previous.at or dt
+        if drop<=4 and age>0 and age<=.16 then
+            R.debtX=R.debtX-cfg.RCSHorizontal/cfg.RCSYawPerUnit*drop
+            R.debtY=R.debtY-cfg.RCSVertical/cfg.RCSPitchPerUnit*drop
+            R.shots=R.shots+drop;R.events=R.events+1;R.magIndex=R.magIndex+drop;R.lastShot=now
+            R.recordShot(now,name,identifier,rounds,drop)
+        else R.skipped=R.skipped+drop end
+    end
+    if cfg.RCSStrengthModel and cfg.RCSXStrength==0 then R.debtX=0 end
+    if cfg.RCSStrengthModel and cfg.RCSYStrength==0 then R.debtY=0 end
+    local length=math.sqrt(R.debtX^2+R.debtY^2)
+    if length>32 then
+        R.debtX=R.debtX*32/length;R.debtY=R.debtY*32/length
+        R.debtClamps=(R.debtClamps or 0)+1
+    end
+    local function whole(v) return v>=0 and math.floor(v) or math.ceil(v) end
+    local x,y=whole(R.debtX),whole(R.debtY)
+    local n=math.sqrt(x*x+y*y)
+    if n>8 then x=whole(x*8/n);y=whole(y*8/n);R.stepClamps=R.stepClamps+1 end
+    R.requestX=x;R.requestY=y
+    R.gate=(x~=0 or y~=0) and "sustained shot correction" or "armed: observing ammo"
+    R.gates[R.gate]=(R.gates[R.gate] or 0)+1
+end
+
 function R.begin(now)
     R.aimX=0; R.aimY=0; R.active=false
     local dt=R.lastTick and now-R.lastTick or 1/cfg.UpdateHz; R.lastTick=now
@@ -1326,7 +1560,7 @@ function R.begin(now)
     if R.button(2)~=true then return block("hold RMB for calibrated input") end
     local firing=R.button(1); if firing==nil then return block("fire-button state unavailable") end
     if type(mousemoverel)~="function" then return block("mousemoverel unavailable") end
-    if dt<=0 or dt>.08 then return block("frame stall; RCS rearming") end
+    if dt<=0 or dt>(cfg.RCSSustained and .16 or .08) then return block("frame stall; RCS rearming") end
     local fov=get(camera,"FieldOfView")
     if not finite(fov) or math.abs(fov-cfg.RCSFOV)>.25 then return block("FOV differs from calibration") end
     local raw=attribute(player,"CurrentEquipped"); if raw==nil then raw=attribute(char,"CurrentEquipped") end
@@ -1351,8 +1585,10 @@ function R.begin(now)
         R.rearms=R.rearms+1; R.lastRearmReason=R.pendingRearmReason or "initial live weapon baseline"
         R.pendingRearmReason=nil; R.routingReady=false; R.magStart=rounds; R.magIndex=0
     end
-    R.prev={name=name,identifier=identifier,rounds=rounds,char=char,camera=camera,team=team}
+    R.prev={name=name,identifier=identifier,rounds=rounds,char=char,camera=camera,team=team,at=clock()}
+    if not firing and C.Trigger and C.Trigger.recent(char,name,identifier,camera,clock()) then firing=true;R.triggerProofSamples=(R.triggerProofSamples or 0)+1 end
     R.active=true; R.wasArmed=true; R.gate=firing and "armed: observing ammo" or "RMB held; waiting for manual fire"
+    if cfg.RCSSustained then R.sustain(now,previous,rounds,firing,reloading,ammoIncrease,dt,name,identifier);return end
     if previous and rounds<previous.rounds then
         local drop=previous.rounds-rounds
         if drop<=2 and firing and reloading~=true then
@@ -1428,13 +1664,17 @@ function R.flush()
         R.combinedCalls=R.combinedCalls+1; R.maxCombined=math.max(R.maxCombined,math.sqrt(x*x+y*y))
     end
     if rx~=0 or ry~=0 then R.correctionFrames=R.correctionFrames+1 end
-    R.appliedX=R.appliedX+rx; R.appliedY=R.appliedY+ry
+    if cfg.RCSSustained then
+        R.debtX=(R.debtX or 0)-rx;R.debtY=(R.debtY or 0)-ry
+        R.sustainX=(R.sustainX or 0)+rx;R.sustainY=(R.sustainY or 0)+ry
+        R.appliedX=0;R.appliedY=0
+    else R.appliedX=R.appliedX+rx; R.appliedY=R.appliedY+ry end
 end
 
 local profileRanges={RCSXStrength={0,100},RCSYStrength={0,100},AimMotionLead={0,.10},AimAcquireBoost={1,2},RCSBuildUp={0,.12},RCSBuildRecovery={.10,1},RCSVertical={0,.60},RCSHorizontal={-.30,.30},RCSReturnTime={.04,.25},AimAcquireRadius={20,160},AimTrackRadius={60,250},AimSmoothTime={.05,.40},AimGain={.25,2},AimMaxStep={1,12},AimMaxPixelsPerSecond={10,500},AimDeadzone={0,20},AimMaxDistance={0,10000}}
-local newRanges={}
+local newRanges={TriggerDelay={0,.4},TriggerInterval={.06,1},TriggerDistance={10,5000}}
 for _,key in ipairs(modeKeys) do profileRanges["ADS"..key]=profileRanges[key] end
-local globals={"ADSDetection","TargetPriority","HealthBars","NumericHP","RCSYawPerUnit","RCSPitchPerUnit","RCSFOV","Enabled","Boxes","Tracers","Labels","Distances","EnemiesOnly","Skeleton","HeadDot","HeadDotRadius","AimHoldKey","AimAutomatic","AimPreview","AimShowFOV","UseWeaponProfiles","Chams","ChamsOpacity"}
+local globals={"TriggerHoldKey","TriggerDelay","TriggerInterval","TriggerDistance","TriggerPoint","AimWallCheck","ShowHiddenLive","UnifiedChams","ADSDetection","TargetPriority","HealthBars","NumericHP","RCSYawPerUnit","RCSPitchPerUnit","RCSFOV","Enabled","Boxes","Tracers","Labels","Distances","EnemiesOnly","Skeleton","HeadDot","HeadDotRadius","AimHoldKey","AimAutomatic","AimPreview","AimShowFOV","UseWeaponProfiles","Chams","ChamsOpacity"}
 local function httpService()
     local ok,value=pcall(function() return game:GetService("HttpService") end)
     return ok and value or nil
@@ -1443,7 +1683,7 @@ function C.SaveSettings()
     P.saveEditing()
     local service=httpService()
     if not service or type(writefile)~="function" then P.settings="Save unavailable"; ui.dirty=true; return false end
-    local data={Version=1,RCSStrengthRangeVersion=2,Profiles=P.Profiles,ScopedWeapons=P.ScopedWeapons,Globals={}}
+    local data={Version=1,RCSStrengthRangeVersion=2,Profiles=P.Profiles,ScopedWeapons=P.ScopedWeapons,PreparedPresetVersion=C.PresetVersion,ResponseUpgradeVersion=C.ResponseUpgradeVersion,Globals={}}
     for _,key in ipairs(globals) do data.Globals[key]=cfg[key] end
     data.Globals.Enabled=C.Enabled
     local ok,err=pcall(function()
@@ -1504,39 +1744,164 @@ function C.LoadSettings(startup)
     for _,key in ipairs(globals) do
         local value=g[key]
         if newRanges[key] and value~=nil and (not finite(value) or value<newRanges[key][1] or value>newRanges[key][2]) then P.settings="Invalid test setting: "..key;return false end
+        if key=="TriggerHoldKey" and value~=nil and (not finite(value) or value<2 or value>254 or value~=math.floor(value) or value==cfg.MenuKey) then P.settings="Invalid trigger bind";return false end
+        if key=="TriggerPoint" and value~=nil and value~="Any body" and value~="Head" and value~="Torso" then P.settings="Invalid trigger hitbox";return false end
         if key=="ADSDetection" and value~=nil and value~="Native" and value~="RMB" then P.settings="Invalid ADS source";return false end
         if key=="TargetPriority" and value~=nil and value~="Crosshair" and value~="Distance" and value~="Health" then P.settings="Invalid target priority";return false end
     end
     for _,key in ipairs(globals) do
         local value=g[key]
         if newRanges[key] and finite(value) then cfg[key]=value
-        elseif (key=="ADSDetection" or key=="TargetPriority") and type(value)=="string" then cfg[key]=value
+        elseif (key=="ADSDetection" or key=="TargetPriority" or key=="TriggerPoint") and type(value)=="string" then cfg[key]=value
         elseif (key=="RCSYawPerUnit" or key=="RCSPitchPerUnit" or key=="RCSFOV") and finite(value) then cfg[key]=value
         elseif type(cfg[key])=="boolean" and type(value)=="boolean" then cfg[key]=value
         elseif key=="HeadDotRadius" and finite(value) then cfg[key]=clamp(math.floor(value),1,3)
         elseif key=="ChamsOpacity" and finite(value) then cfg[key]=clamp(value,.05,.80)
-        elseif key=="AimHoldKey" and finite(value) and value==math.floor(value) and value>=1 and value<=254 and value~=cfg.MenuKey then cfg[key]=value end
+        elseif (key=="AimHoldKey" or key=="TriggerHoldKey") and finite(value) and value==math.floor(value) and value>=1 and value<=254 and value~=cfg.MenuKey then cfg[key]=value end
     end
     if type(data.ScopedWeapons)=="table" then
         local n=0;for name,value in pairs(data.ScopedWeapons) do
             if value==true and type(name)=="string" and #name>0 and #name<=80 and not name:find("[%c]") and n<64 then P.ScopedWeapons[name]=true;n=n+1 end
         end
     end
+    C.ResponseUpgradeVersion=data.ResponseUpgradeVersion==1 and 1 or nil
+    C.PresetVersion=data.PreparedPresetVersion==1 and 1 or nil
     P.Profiles=staged; P.Names=names; P.Editing=staged[P.Editing] and P.Editing or "Default"
     C.Enabled=cfg.Enabled; P.apply(); R.cancel("settings loaded"); resetAim("settings loaded"); ui.dirty=true; P.settings="Settings loaded"
     -- Aim master is intentionally not persisted. On explicit reload, preserve its current state.
-    if startup then cfg.AimEnabled=false; cfg.RCSEnabled=false end
+    if startup then cfg.SpaceHop=false;cfg.AimEnabled=false; cfg.RCSEnabled=false end
     return true
 end
 
-local visualRows={{"ESP enabled","Enabled"},{"Body boxes","Boxes"},{"Tracers","Tracers"},{"Player / bot labels","Labels"},{"Distance labels","Distances"},{"Enemies only","EnemiesOnly"},{"Skeleton","Skeleton"},{"Head dot","HeadDot"},{"Head dot radius","radius"},{"Health bars","HealthBars"},{"Numeric health","NumericHP"},{"Filled body chams","Chams"},{"Chams opacity","ChamsOpacity"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
+-- One-time explicit-load upgrade. Retain custom FOV, aim point and strengths.
+function C.UpgradeResponse()
+    if C.ResponseUpgradeVersion==1 then return false end
+    local specs={
+        ["Default"]={.10,1,6,280,.08,1.1,8,400},
+        ["AK-47"]={.075,1.25,7,320,.06,1.25,10,480},
+        M4A4={.09,1.1,6,300,.065,1.25,9,450},["M4A1-S"]={.09,1.1,6,300,.065,1.25,9,450},
+        ["USP-S"]={.10,1,6,280,.08,1.1,8,400},["Glock-18"]={.10,1,6,280,.08,1.1,8,400},
+        ["Desert Eagle"]={.12,1,5,260,.10,1.1,7,360},Deagle={.12,1,5,260,.10,1.1,7,360},
+        MP7={.09,1.1,6,300,.065,1.25,9,450},MP9={.09,1.1,6,300,.065,1.25,9,450},
+        FAMAS={.09,1.1,6,300,.065,1.25,9,450},["Galil AR"]={.09,1.1,6,300,.065,1.25,9,450}}
+    local keys={"AimSmoothTime","AimGain","AimMaxStep","AimMaxPixelsPerSecond"}
+    local edits=0
+    for name,v in pairs(specs) do local p=P.Profiles[name]
+        if p then for i,k in ipairs(keys) do
+            if p[k]==v[i] then p[k]=v[i+4];edits=edits+1 end
+            if p["ADS"..k]==v[i] then p["ADS"..k]=v[i+4] end
+        end end
+    end
+    C.ResponseUpgradeVersion=1;C.ResponseUpgradedValues=edits
+    P.apply();return true
+end
+
+-- Explicit menu action: prepared settings are authored starting points, not
+-- measured weapon recoil curves. Existing JSON is backed up before first save.
+local B={version=1,name="Syynn weapon starter 1",backup="bloxstrike/test16/client_settings.before167.txt"}
+C.PreparedSettings=B
+function B.make()
+    local defaults=cloneProfile(P.Profiles.Default)
+    defaults.AimPoint="Head";defaults.AimAcquireRadius=100;defaults.AimTrackRadius=140
+    defaults.AimSmoothTime=.10;defaults.AimGain=1;defaults.AimMaxStep=6;defaults.AimMaxPixelsPerSecond=280
+    defaults.AimDeadzone=.5;defaults.AimMaxDistance=1000;defaults.AimMotionLead=.05;defaults.AimAcquireBoost=1.5
+    defaults.AimBodyAcquire=false;defaults.ProfileAimAllowed=true;defaults.RCSProfileAllowed=false
+    defaults.RCSXStrength=0;defaults.RCSYStrength=0;defaults.SeparateADS=true
+    defaults.RCSVertical=0;defaults.RCSHorizontal=0;defaults.RCSBuildUp=0;defaults.RCSReturnTime=.105;defaults.RCSBuildRecovery=.20
+    for _,k in ipairs(modeKeys) do defaults["ADS"..k]=defaults[k] end
+    local profiles={Default=defaults}
+    -- acquire, track, smooth, gain, step, units/sec, Y strength
+    local specs={
+        {"AK-47",126,160,.075,1.25,7,320,85},
+        {"M4A4",110,150,.09,1.10,6,300,70},
+        {"M4A1-S",110,150,.09,1.10,6,300,60},
+        {"USP-S",100,140,.10,1.00,6,280,35},
+        {"Glock-18",100,145,.10,1.00,6,280,35},
+        {"Desert Eagle",90,125,.12,1.00,5,260,40},
+        {"Deagle",90,125,.12,1.00,5,260,40},
+        {"MP9",110,150,.09,1.10,6,300,55},
+        {"MP7",110,150,.09,1.10,6,300,55},
+        {"FAMAS",110,150,.09,1.10,6,300,65},
+        {"Galil AR",110,150,.09,1.10,6,300,75},
+        {"AWP",55,80,.20,.65,3,140,0},
+        {"SSG 08",65,90,.16,.80,4,180,0},
+        {"Scout",65,90,.16,.80,4,180,0},
+    }
+    for _,v in ipairs(specs) do
+        local p=cloneProfile(defaults)
+        p.AimAcquireRadius=v[2];p.AimTrackRadius=v[3];p.AimSmoothTime=v[4];p.AimGain=v[5]
+        p.AimMaxStep=v[6];p.AimMaxPixelsPerSecond=v[7];p.RCSYStrength=v[8];p.RCSProfileAllowed=v[8]>0
+        p.RCSVertical=.30*v[8]/100;p.RCSBuildUp=.04*v[8]/100
+        for _,k in ipairs(modeKeys) do p["ADS"..k]=p[k] end
+        if v[1]=="AWP" or v[1]=="SSG 08" or v[1]=="Scout" then
+            p.ADSAimAcquireRadius=70;p.ADSAimTrackRadius=105;p.ADSAimSmoothTime=.10
+            p.ADSAimGain=1;p.ADSAimMaxStep=5;p.ADSAimMaxPixelsPerSecond=240
+        end
+        profiles[v[1]]=p
+    end
+    for _,name in ipairs({"CT Knife","T Knife","C4","HE Grenade","Flashbang","Smoke Grenade","Molotov","Incendiary Grenade"}) do
+        local p=cloneProfile(defaults);p.ProfileAimAllowed=false;p.RCSProfileAllowed=false;profiles[name]=p
+    end
+    local names={"Default"};for name in pairs(profiles) do if name~="Default" then names[#names+1]=name end end
+    table.sort(names,function(a,b) if a=="Default" then return b~="Default" elseif b=="Default" then return false else return a<b end end)
+    return profiles,names
+end
+function B.activate()
+    cfg.AimEnabled=true;cfg.RCSEnabled=true;cfg.SpaceHop=true
+    R.cancel("prepared settings explicitly loaded");resetAim("prepared settings loaded; release aim bind")
+    if C.Hop then C.Hop.cleanup("prepared settings loaded; release Space") end
+    ui.dirty=true
+end
+function C.LoadConfiguredSettings(forcePreset)
+    local service=httpService();local raw,stored
+    if service and type(readfile)=="function" then
+        local ok,value=pcall(readfile,cfg.SettingsPath)
+        if ok and type(value)=="string" then
+            raw=value
+            if #raw<=64000 then local decoded,data=pcall(function() return service:JSONDecode(raw) end);if decoded then stored=data end end
+        end
+    end
+    if not forcePreset and type(stored)=="table" and stored.PreparedPresetVersion==B.version then
+        if not C.LoadSettings(false) then return false end
+        C.PresetVersion=B.version;local upgraded=C.UpgradeResponse();B.activate();if upgraded then C.SaveSettings() end;ui.notice="Saved weapon setup loaded";return true
+    end
+    if raw then
+        local ok,problem=pcall(function()
+            assert(type(writefile)=="function" and type(readfile)=="function","backup file APIs unavailable")
+            -- Keep the first backup: never overwrite an already existing file.
+            local exists,old=pcall(readfile,B.backup)
+            if not exists then
+                assert(writefile(B.backup,raw)~=false,"backup write rejected")
+                assert(readfile(B.backup)==raw,"backup verification failed")
+            else assert(type(old)=="string" and #old>0,"existing backup invalid") end
+        end)
+        if not ok then P.settings="Preset stopped: "..str(problem,90);ui.notice=P.settings;ui.dirty=true;return false end
+    end
+    local profiles,names=B.make()
+    P.Profiles=profiles;P.Names=names;P.EditPinned=false;P.EditMode="Hip"
+    P.Editing=P.Current and profiles[P.Current] and P.Current or "Default"
+    C.PresetVersion=B.version
+    cfg.UseWeaponProfiles=true;cfg.AimAutomatic=false;cfg.AimHoldKey=2;cfg.AimPreview=false;cfg.AimShowFOV=true
+    cfg.TargetPriority="Crosshair";cfg.ADSDetection="Native"
+    cfg.Enabled=true;C.Enabled=true;cfg.Boxes=true;cfg.Tracers=false;cfg.Labels=false;cfg.Distances=true
+    cfg.Skeleton=true;cfg.HeadDot=true;cfg.HeadDotRadius=2;cfg.HealthBars=true;cfg.NumericHP=true
+    cfg.EnemiesOnly=true;cfg.Chams=true;cfg.ChamsOpacity=.20;cfg.UnifiedChams=true;cfg.ShowHiddenLive=true
+    -- Preserve the user's raycast preference and measured mouse calibration.
+    C.ResponseUpgradeVersion=nil;C.UpgradeResponse();P.apply();B.activate()
+    local saved=C.SaveSettings()
+    ui.notice=saved and "Prepared weapons saved; Aim/RCS/hop enabled" or "Preset active in memory; saving failed"
+    P.settings=ui.notice;ui.dirty=true;return true
+end
+
+local visualRows={{"ESP enabled","Enabled"},{"Body boxes","Boxes"},{"Tracers","Tracers"},{"Player / bot labels","Labels"},{"Distance labels","Distances"},{"Enemies only","EnemiesOnly"},{"Skeleton","Skeleton"},{"Head dot","HeadDot"},{"Head dot radius","radius"},{"Health bars","HealthBars"},{"Numeric health","NumericHP"},{"Hidden live ESP (test)","ShowHiddenLive"},{"Filled body chams","Chams"},{"Unified chams fill","UnifiedChams"},{"Chams opacity","ChamsOpacity"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
 local aimRows={{"Aim assist","AimEnabled"},{"Hold key (click to bind)","bind"},{"Automatic aim (no hold)","AimAutomatic"},{"Preview only (no movement)","AimPreview"},{"Aim point","AimPoint"},{"Acquire radius","AimAcquireRadius"},{"Target priority","TargetPriority"},{"Tracking radius","AimTrackRadius"},{"Smooth time","AimSmoothTime"},{"Mouse gain","AimGain"},{"Max movement per call","AimMaxStep"},{"Show aim circles","AimShowFOV"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
-local effectRows={{"Use weapon profiles","UseWeaponProfiles"},{"Edit profile (click to cycle)","profileSelect"},{"Allow aim for this profile","ProfileAimAllowed"},{"Copy Default into this profile","copyDefault"},{"Experimental RCS controls","statusRCS"},{"Auto bunnyhop","statusBhop"},{"Auto strafe","statusStrafe"},{"Save all settings","saveSettings"},{"Load saved settings","loadSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
-local trackingRows={{"Correction speed","AimMaxPixelsPerSecond"},{"Stop radius","AimDeadzone"},{"Motion compensation","AimMotionLead"},{"Acquisition boost","AimAcquireBoost"},{"Smooth time","AimSmoothTime"},{"Mouse gain","AimGain"},{"Max movement per call","AimMaxStep"},{"Tracking radius","AimTrackRadius"},{"Save all settings","saveSettings"},{"Copy diagnostics","report"},{"Body-aware acquisition","AimBodyAcquire"},{"Stop and remove client","quit"}}
+local effectRows={{"Use weapon profiles","UseWeaponProfiles"},{"Edit profile (click to cycle)","profileSelect"},{"Allow aim for this profile","ProfileAimAllowed"},{"Copy Default into this profile","copyDefault"},{"Experimental RCS controls","statusRCS"},{"Hold Space hop (test)","SpaceHop"},{"Restore prepared weapon preset","restorePreset"},{"Save all settings","saveSettings"},{"Load weapon setup + enable","loadSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
+local trackingRows={{"Correction speed","AimMaxPixelsPerSecond"},{"Stop radius","AimDeadzone"},{"Motion compensation","AimMotionLead"},{"Acquisition boost","AimAcquireBoost"},{"Smooth time","AimSmoothTime"},{"Mouse gain","AimGain"},{"Max movement per call","AimMaxStep"},{"Tracking radius","AimTrackRadius"},{"Save all settings","saveSettings"},{"Copy diagnostics","report"},{"Body-aware acquisition","AimBodyAcquire"},{"Wall check (test)","AimWallCheck"},{"Stop and remove client","quit"}}
 local recoilRows={{"Recoil control","RCSEnabled"},{"Allow for this weapon","RCSProfileAllowed"},{"Horizontal X strength","RCSXStrength"},{"Vertical Y strength","RCSYStrength"},{"Import mouse calibration","importCalibration"},{"Save settings","saveSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
 
 local modeRows={{"Editing weapon profile","profileSelect"},{"Editing aim mode","editAimMode"},{"Separate hip / ADS settings","SeparateADS"},{"Scope detection source","ADSDetection"},{"Copy Hip into ADS","copyHipADS"},{"Acquire radius (editing mode)","AimAcquireRadius"},{"Tracking radius (editing mode)","AimTrackRadius"},{"Smooth time (editing mode)","AimSmoothTime"},{"Tracking gain (editing mode)","AimGain"},{"Save test settings","saveSettings"}}
-local pages={visualRows,aimRows,effectRows,trackingRows,recoilRows,modeRows}
+local triggerRows={{"Triggerbot","TriggerEnabled"},{"Hold key (click to bind)","triggerBind"},{"Allowed hitboxes","TriggerPoint"},{"Reaction delay","TriggerDelay"},{"Click interval","TriggerInterval"},{"Maximum ray distance","TriggerDistance"},{"Save settings","saveSettings"},{"Copy diagnostics","report"},{"Stop and remove client","quit"}}
+local pages={visualRows,aimRows,effectRows,trackingRows,recoilRows,modeRows,triggerRows}
 local menuRows
 local function modeLocked(key)
     return A.page==6 and not P.scopeAllowed(P.Editing) and key~="profileSelect" and key~="saveSettings" and key~="report" and key~="quit"
@@ -1554,7 +1919,7 @@ local function openPage(page)
     A.page=page;menuRows=pages[page];ui.row=1;ui.slider=nil;ui.notice="";ui.dirty=true
 end
 menuRows=visualRows
-local choices={ADSDetection={"Native","RMB"},TargetPriority={"Crosshair","Distance","Health"},AimPoint={"Torso","Head","Chest"},AimAcquireRadius={20,35,50,75,100,125,160},AimTrackRadius={60,90,120,160,200,250},AimSmoothTime={.12,.22,.30,.40},AimGain={.25,.5,.65,1,1.5},AimMaxStep={1,2,3,4,6}}
+local choices={TriggerPoint={"Any body","Head","Torso"},ADSDetection={"Native","RMB"},TargetPriority={"Crosshair","Distance","Health"},AimPoint={"Torso","Head","Chest"},AimAcquireRadius={20,35,50,75,100,125,160},AimTrackRadius={60,90,120,160,200,250},AimSmoothTime={.12,.22,.30,.40},AimGain={.25,.5,.65,1,1.5},AimMaxStep={1,2,3,4,6}}
 local function keyName(key)
     local names={[1]="LMB",[2]="RMB",[4]="MMB",[5]="Mouse4",[6]="Mouse5",[16]="Shift",[17]="Ctrl",[18]="Alt",[32]="Space"}
     return names[key] or ((key>=48 and key<=90) and string.char(key) or ("VK "..key))
@@ -1577,15 +1942,17 @@ local function toggleRow(row)
     elseif key=="Chams" and FX.chamFault then ui.dirty=true; return
     elseif key=="profileSelect" then P.selectNext(); return
     elseif key=="saveSettings" then C.SaveSettings(); return
-    elseif key=="loadSettings" then C.LoadSettings(false); return
+    elseif key=="loadSettings" then C.LoadConfiguredSettings(false); return
+    elseif key=="restorePreset" then C.LoadConfiguredSettings(true); return
     elseif key=="copyDefault" then P.Profiles[P.Editing]=cloneProfile(P.Profiles.Default); P.load(P.Editing)
     elseif key=="radius" then cfg.HeadDotRadius=cfg.HeadDotRadius%3+1
-    elseif key=="bind" then A.capture=true; A.captureReleased=false; resetAim("waiting for new hold key")
+    elseif key=="bind" or key=="triggerBind" then A.captureKey=key=="triggerBind" and "TriggerHoldKey" or "AimHoldKey";A.capture=true; A.captureReleased=false; resetAim("waiting for new hold key")
     elseif choices[key] then
         local list=choices[key]; local index=0
         for i,value in ipairs(list) do if value==cfg[key] then index=i; break end end
         cfg[key]=list[index%#list+1]; resetAim("aim setting changed; release hold key")
     else cfg[key]=not cfg[key] end
+    if key=="SpaceHop" and C.Hop then C.Hop.cleanup("hop toggle changed; release Space") end
     if key=="AimEnabled" or key=="AimPreview" or key=="AimAutomatic" then resetAim("aim mode changed") end
     P.saveEditing(); P.apply(); ui.dirty=true
 end
@@ -1598,6 +1965,7 @@ local function uiObject(index,kind,color)
 end
 -- Every numeric control has its own unit, bounds and fine increment.
 local sliderSpecs={
+    TriggerDelay={min=0,max=.4,step=.01,format="%.2f s"},TriggerInterval={min=.06,max=1,step=.01,format="%.2f s"},TriggerDistance={min=10,max=5000,step=10,format="%.0f studs"},
     RCSXStrength={min=0,max=100,step=5,format="%.0f%%"},RCSYStrength={min=0,max=100,step=5,format="%.0f%%"},
     radius={key="HeadDotRadius",min=1,max=3,step=1,format="%.0f px"},
     AimAcquireRadius={min=20,max=160,step=1,format="%.0f px"},
@@ -1637,13 +2005,13 @@ local function paintPanel()
     if not features.text then return end
     local total=0; ui.layout={}
     for i,row in ipairs(menuRows) do
-        local h=sliderSpecs[row[2]] and (A.page==1 and 48 or 50) or (A.page==1 and 24 or 25)
+        local h=sliderSpecs[row[2]] and (A.page==1 and 48 or 50) or (A.page==1 and 20 or 25)
         ui.contentTop=(A.page==2 or A.page==6) and 136 or 102
         ui.layout[i]={top=ui.y+ui.contentTop+total,height=h,left=ui.x+30,right=ui.x+ui.w-78}
         total=total+h
     end
     ui.h=ui.contentTop+60+total
-    for row=#menuRows+1,16 do
+    for row=#menuRows+1,20 do
         for _,index in ipairs({100+row,200+row,row+2}) do
             if ui.objects[index] then assign(ui.objects[index],"Visible",false) end
         end
@@ -1666,14 +2034,14 @@ local function paintPanel()
         rectangle(1,ui.x,ui.y,ui.w,ui.h,background)
         rectangle(2,ui.x,ui.y,ui.w,3,purple)
     end
-    label(100,"BLOXSTRIKE 1.6.4 TEST",ui.x+12,ui.y+9,ink)
+    label(100,"BLOXSTRIKE 1.6.10 TEST",ui.x+12,ui.y+9,ink)
     ui.tabs={};ui.subtabs={}
-    for index,page in ipairs({1,2,3,4,5}) do
+    for index,page in ipairs({1,2,3,4,5,7}) do
         local col=(index-1)%3;local row=math.floor((index-1)/3)
         local x,y=ui.x+8+col*135,ui.y+34+row*30
         ui.tabs[page]={left=x,top=y,right=x+130,bottom=y+25,page=page}
         rectangle(19+index,x,y,130,25,(A.page==page or (page==2 and A.page==6)) and purple or background)
-        label(149+index,({"VISUALS","AIM","PROFILES","TRACK","RCS"})[index],x+9,y+5,ink,true)
+        label(149+index,({"VISUALS","AIM","PROFILES","TRACK","RCS","TRIGGER"})[index],x+9,y+5,ink,true)
     end
     
     if A.page==2 or A.page==6 then
@@ -1695,6 +2063,7 @@ local function paintPanel()
         if name=="report" then value="COPY"
         elseif name=="quit" then value="STOP"
         elseif name=="bind" then value=A.capture and "PRESS KEY" or keyName(cfg.AimHoldKey)
+        elseif name=="triggerBind" then value=A.capture and "PRESS KEY" or keyName(cfg.TriggerHoldKey)
         elseif name=="editAimMode" then value=P.EditMode
         elseif name=="copyHipADS" then value="COPY"
         elseif name=="profileSelect" then value=str(P.Editing,18)
@@ -1702,6 +2071,7 @@ local function paintPanel()
         elseif name=="copyDefault" then value="APPLY"
         elseif name=="saveSettings" then value="SAVE"
         elseif name=="loadSettings" then value="LOAD"
+        elseif name=="restorePreset" then value="RESTORE"
         elseif name=="importCalibration" then value="LOAD"
         elseif name=="statusRCS" then value="PULSE TEST"
         elseif name=="statusCalibration" then value=string.format("FOV %.0f",cfg.RCSFOV)
@@ -1752,7 +2122,7 @@ local function controls(now)
         if menu then P.saveEditing(); C.MenuOpen=not C.MenuOpen; P.apply(); resetAim("menu toggled"); ui.dirty=true end
     end
     if A.capture and focused and C.MenuOpen then
-        local reserved={[cfg.MenuKey]=true}
+        local reserved={[cfg.MenuKey]=true};if A.captureKey=="TriggerHoldKey" then reserved[1]=true end
         local pressedKey
         for code=1,254 do
             local ok,value=pcall(iskeypressed,code)
@@ -1761,7 +2131,7 @@ local function controls(now)
         if not pressedKey then A.captureReleased=true
         elseif pressedKey==0x1B then A.capture=false; ui.dirty=true
         elseif A.captureReleased and not reserved[pressedKey] then
-            cfg.AimHoldKey=pressedKey; A.capture=false; resetAim("hold key rebound; release it first"); ui.dirty=true
+            cfg[A.captureKey or "AimHoldKey"]=pressedKey;A.captureKey=nil; A.capture=false; resetAim("hold key rebound; release it first"); ui.dirty=true
         end
     elseif A.capture and not C.MenuOpen then A.capture=false end
     if C.MenuOpen and focused then
@@ -1831,58 +2201,67 @@ function FX.hull(points)
     return h
 end
 function FX.partHull(e,part,vw,vh)
-    if not same(get(part.obj,"Parent"),e.model) then return nil end
-    local ok,m=pcall(function() return {part.obj.CFrame:GetComponents()} end)
-    if not ok or #m~=12 then FX.chamSkipped=FX.chamSkipped+1; return nil end
-    for i=1,12 do if not finite(m[i]) then FX.chamSkipped=FX.chamSkipped+1; return nil end end
-    local a=e.lastAnchor
-    if not a or math.max(math.abs(m[1]-a[1]),math.abs(m[2]-a[2]),math.abs(m[3]-a[3]))>cfg.MaxBodySpan then return nil end
-    local points={}; local size=part.size
-    for _,sx in ipairs({-.5,.5}) do for _,sy in ipairs({-.5,.5}) do for _,sz in ipairs({-.5,.5}) do
-        local x,y,z=size[1]*sx,size[2]*sy,size[3]*sz
-        local px,py=V.project(m[1]+m[4]*x+m[5]*y+m[6]*z,m[2]+m[7]*x+m[8]*y+m[9]*z,m[3]+m[10]*x+m[11]*y+m[12]*z)
-        -- Skip a clipped part rather than invent off-screen WorldToScreen values.
+    local a=e.lastAnchor;if not a then return nil end
+    e.chamPose=e.chamPose or {}
+    local corners=e.chamPose[part.obj]
+    if e.chamRefresh or not corners then
+        e.chamPose[part.obj]=nil
+        if not same(get(part.obj,"Parent"),e.model) then return nil end
+        local ok,m=pcall(function() return {part.obj.CFrame:GetComponents()} end)
+        if not ok or #m~=12 then FX.chamSkipped=FX.chamSkipped+1;return nil end
+        for i=1,12 do if not finite(m[i]) then FX.chamSkipped=FX.chamSkipped+1;return nil end end
+        if math.max(math.abs(m[1]-a[1]),math.abs(m[2]-a[2]),math.abs(m[3]-a[3]))>cfg.MaxBodySpan then return nil end
+        corners={};local size=part.size
+        for _,sx in ipairs({-.5,.5}) do for _,sy in ipairs({-.5,.5}) do for _,sz in ipairs({-.5,.5}) do
+            local x,y,z=size[1]*sx,size[2]*sy,size[3]*sz
+            corners[#corners+1]={m[1]-a[1]+m[4]*x+m[5]*y+m[6]*z,m[2]-a[2]+m[7]*x+m[8]*y+m[9]*z,m[3]-a[3]+m[10]*x+m[11]*y+m[12]*z}
+        end end end
+        e.chamPose[part.obj]=corners;FX.chamPoseReads=(FX.chamPoseReads or 0)+1
+    end
+    local points={}
+    for _,p in ipairs(corners) do
+        local px,py=V.project(a[1]+p[1],a[2]+p[2],a[3]+p[3])
         if not px or px<0 or py<0 or px>vw or py>vh then return nil end
         points[#points+1]={px,py}
-    end end end
+    end
     return FX.hull(points)
 end
+
 function FX.chams(slot,e,now,vw,vh,rank)
-    if e.fullDetail==false then
-        for _,o in ipairs(slot.chams or {}) do assign(o,"Visible",false) end;slot.nextChams=0;return
-    end
     slot.chams=slot.chams or {}
-    if not cfg.Chams or FX.chamFault or rank>cfg.ChamsMaxTargets then
-        for _,obj in ipairs(slot.chams) do assign(obj,"Visible",false) end
-        slot.nextChams=0; return
+    if e.fullDetail==false or not cfg.Chams or FX.chamFault or rank>cfg.ChamsMaxTargets then
+        for _,o in ipairs(slot.chams) do assign(o,"Visible",false) end;slot.nextChams=0;return
     end
-    -- Never reuse a previous model's polygon after slot assignment changes.
-    if slot.chamModel~=e.model then slot.nextChams=0; slot.chamModel=e.model end
-    if slot.nextChams and now<slot.nextChams then
-        for i,obj in ipairs(slot.chams) do assign(obj,"Visible",i<=(slot.chamCount or 0)) end
-        return
-    end
-    slot.nextChams=now+1/cfg.ChamsHz; FX.chamUpdates=FX.chamUpdates+1
+    if slot.chamModel~=e.model then slot.nextChams=0;slot.chamModel=e.model;e.chamPose=nil end
+    e.chamRefresh=not e.chamPose or slot.nextChams==nil or now>=slot.nextChams
+    if e.chamRefresh then slot.nextChams=now+1/cfg.ChamsHz end
+    FX.chamUpdates=FX.chamUpdates+1
     local count=0
-    for _,part in ipairs(e.parts) do
-        local hull=FX.partHull(e,part,vw,vh)
-        if hull and #hull>=3 then
-            for i=2,#hull-1 do
-                count=count+1; local obj=slot.chams[count]
-                if not obj then
-                    obj=tryDrawing("Triangle",purple)
-                    assert(obj,"Drawing Triangle unavailable")
-                    slot.chams[count]=obj; slot.objects[#slot.objects+1]=obj
-                    assign(obj,"Filled",true); pcall(assign,obj,"ZIndex",0)
-                end
-                vector2(obj,"PointA",hull[1][1],hull[1][2]); vector2(obj,"PointB",hull[i][1],hull[i][2]); vector2(obj,"PointC",hull[i+1][1],hull[i+1][2])
-                assign(obj,"Transparency",cfg.ChamsOpacity); assign(obj,"Visible",true)
+    local function fill(h)
+        if not h or #h<3 then return end
+        -- A single convex fan has no overlapping triangle interiors.
+        for i=2,#h-1 do
+            count=count+1;local o=slot.chams[count]
+            if not o then
+                o=tryDrawing("Triangle",purple);assert(o,"Drawing Triangle unavailable")
+                slot.chams[count]=o;slot.objects[#slot.objects+1]=o;assign(o,"Filled",true);pcall(assign,o,"ZIndex",0)
             end
+            vector2(o,"PointA",h[1][1],h[1][2]);vector2(o,"PointB",h[i][1],h[i][2]);vector2(o,"PointC",h[i+1][1],h[i+1][2])
+            assign(o,"Color",purple);assign(o,"Transparency",cfg.ChamsOpacity);assign(o,"Visible",true)
         end
     end
-    slot.chamCount=count; FX.chamTriangles=FX.chamTriangles+count
+    local points={}
+    for _,part in ipairs(e.parts) do
+        local h=FX.partHull(e,part,vw,vh)
+        if cfg.UnifiedChams then
+            for _,p in ipairs(h or {}) do points[#points+1]=p end
+        else fill(h) end
+    end
+    if cfg.UnifiedChams then fill(FX.hull(points));FX.unifiedFrames=(FX.unifiedFrames or 0)+1 end
+    slot.chamCount=count;FX.chamTriangles=FX.chamTriangles+count
     for i=count+1,#slot.chams do assign(slot.chams[i],"Visible",false) end
 end
+
 function V.detail(e)
     return true -- Detail is controlled only by individual visual switches.
 end
@@ -1931,13 +2310,419 @@ function V.better(a,b)
     if a.error~=b.error then return a.error<b.error end
     return tostring(a.entry.key)<tostring(b.entry.key)
 end
+-- Atomic documented mouse1click; no held synthetic fire state is latched.
+local TR={gate="OFF",calls=0,failures=0,rays=0,rayErrors=0,blocked=0,acquisitions=0,history={},gates={},gateHistory={},hits={},hitOrder={},hitEvicted=0,heldSamples=0,upSamples=0,keyErrors=0,directMatches=0,refreshedMatches=0,rootMatches=0}
+C.Trigger=TR
+function TR.setGate(reason)
+    TR.gates[reason]=(TR.gates[reason] or 0)+1
+    if TR.gate~=reason then
+        TR.gateHistory[#TR.gateHistory+1]=string.format("+%.3fs %s",clock()-started,reason)
+        if #TR.gateHistory>16 then table.remove(TR.gateHistory,1) end
+    end
+    TR.gate=reason
+end
+function TR.cancel(reason)
+    TR.candidate=nil;TR.since=nil;TR.setGate(reason)
+end
+-- A root hit is only a proxy: require the actual hit position inside a
+-- current torso volume, rather than treating the entire root as damageable.
+function TR.contains(part,position,model)
+    if not same(get(part,"Parent"),model) then return false end
+    local size=xyz(get(part,"Size"))
+    if not size or math.min(size[1],size[2],size[3])<=.01 or math.max(size[1],size[2],size[3])>cfg.MaxPartSize then return false end
+    local ok,m=pcall(function() return {part.CFrame:GetComponents()} end)
+    if not ok or #m~=12 then return false end
+    for i=1,12 do if not finite(m[i]) then return false end end
+    -- Validate an orthonormal rotation before using its transpose as inverse.
+    for col=0,2 do
+        local n=m[4+col]^2+m[7+col]^2+m[10+col]^2
+        if math.abs(n-1)>.01 then return false end
+    end
+    for a=0,1 do for b=a+1,2 do
+        if math.abs(m[4+a]*m[4+b]+m[7+a]*m[7+b]+m[10+a]*m[10+b])>.01 then return false end
+    end end
+    local x,y,z=position[1]-m[1],position[2]-m[2],position[3]-m[3]
+    return math.abs(x*m[4]+y*m[7]+z*m[10])<=size[1]*.5+.02 and
+        math.abs(x*m[5]+y*m[8]+z*m[11])<=size[2]*.5+.02 and
+        math.abs(x*m[6]+y*m[9]+z*m[12])<=size[3]*.5+.02
+end
+function TR.resolve(instance,position)
+    local parent=get(instance,"Parent")
+    local target
+    for _,e in ipairs(entries) do if same(e.model,parent) then target=e;break end end
+    if not target then return nil,nil,"outside cached rig" end
+    for _,part in ipairs(target.parts or {}) do
+        if same(part.obj,instance) then return target,part.name,"cached part" end
+    end
+    local name=get(instance,"Name");name=type(name)=="string" and name:lower() or ""
+    local class=get(instance,"ClassName")
+    if class~="Part" and class~="MeshPart" and class~="UnionOperation" then return nil,nil,"non-part in cached rig" end
+    local size=xyz(get(instance,"Size"))
+    if not size or math.min(size[1],size[2],size[3])<=.01 or math.max(size[1],size[2],size[3])>cfg.MaxPartSize then return nil,nil,"invalid part size in cached rig" end
+    if bodyNames[name] then return target,name,"current direct body part" end
+    if name=="humanoidrootpart" then
+        for _,part in ipairs(target.parts or {}) do
+            if (part.name=="uppertorso" or part.name=="lowertorso") and TR.contains(part.obj,position,target.model) then
+                return target,part.name,"root hit inside torso"
+            end
+        end
+        return nil,nil,"root hit outside verified torso volume"
+    end
+    return nil,nil,"unknown part in cached rig"
+end
+function TR.noteHit(instance,position,along,match,target,partName)
+    local key=tostring(id(instance))..":"..match
+    local row=TR.hits[key]
+    if not row then
+        if #TR.hitOrder>=24 then
+            local oldest=table.remove(TR.hitOrder,1);TR.hits[oldest]=nil;TR.hitEvicted=TR.hitEvicted+1
+        end
+        local function clean(value,limit)
+            return tostring(value or "nil"):gsub("[%c]"," "):sub(1,limit or 160)
+        end
+        local chain={};local obj=instance;local relation="other / unclassified"
+        local char=get(player,"Character");local camera=get(world,"CurrentCamera")
+        for i=1,8 do
+            if not obj then break end
+            if same(obj,char) then relation="local character" end
+            if same(obj,camera) then relation="camera / viewmodel" end
+            chain[#chain+1]=clean(get(obj,"Name"),60).."["..clean(get(obj,"ClassName"),40).."]"
+            obj=get(obj,"Parent")
+        end
+        local ok,path=pcall(function() return instance:GetFullName() end)
+        row={count=0,first=clock()-started,description="id="..clean(id(instance),50).." path="..clean(ok and path or "unavailable",240)..
+            " chain="..table.concat(chain," <- ").." relation="..relation.." match="..match..
+            " target="..clean(target and target.name,60).." part="..clean(partName,40)}
+        TR.hits[key]=row;TR.hitOrder[#TR.hitOrder+1]=key
+    end
+    row.count=row.count+1;row.last=clock()-started;row.along=along
+    row.position=string.format("%.2f/%.2f/%.2f",position[1],position[2],position[3])
+end
+function TR.recent(char,name,identifier,cam,now)
+    local c=TR.lastClick
+    return c and now-c.at>=0 and now-c.at<=.20 and same(c.char,char) and same(c.camera,cam) and c.name==name and c.identifier==identifier
+end
+function TR.step(now)
+    if not cfg.TriggerEnabled then TR.cancel("OFF");return end
+    if TR.fault then TR.cancel(TR.fault);return end
+    if not C.Running or not C.Enabled or C.MenuOpen or A.capture then TR.cancel("client paused / menu open");return end
+    if cfg.AimPreview then TR.cancel("preview blocks firing");return end
+    if type(mouse1click)~="function" then TR.cancel("mouse1click unavailable");return end
+    local good,focused=pcall(isrbxactive)
+    if not good or focused~=true then TR.cancel("Roblox not focused");return end
+    local held,key=pcall(iskeypressed,cfg.TriggerHoldKey)
+    if not held or type(key)~="boolean" then TR.keyErrors=TR.keyErrors+1;TR.cancel("trigger bind unreadable");return end
+    if not key then TR.upSamples=TR.upSamples+1;TR.cancel("hold trigger bind");return end
+    TR.heldSamples=TR.heldSamples+1
+    if R.button(1)~=false then TR.cancel("manual LMB held / unavailable");return end
+    if now<(TR.nextClick or 0) then TR.setGate("click cooldown");return end
+    if now<(TR.nextProbe or 0) then return end
+    TR.nextProbe=now+.03
+    if C.LocalAimBlock then TR.cancel(C.LocalAimBlock);return end
+    -- Native orientation supplies the actual centre ray, not an ESP rectangle.
+    local cam=get(world,"CurrentCamera")
+    local ok,m=pcall(function() return {cam.CFrame:GetComponents()} end)
+    if not ok or #m~=12 then TR.cancel("camera orientation unavailable");return end
+    for i=1,12 do if not finite(m[i]) then TR.cancel("invalid camera orientation");return end end
+    local dx,dy,dz=-m[6],-m[9],-m[12];local norm=math.sqrt(dx*dx+dy*dy+dz*dz)
+    if math.abs(norm-1)>.05 then TR.cancel("invalid camera direction");return end
+    local before=clock();TR.rays=TR.rays+1
+    local rayOK,hit=pcall(function() return world:Raycast(Vector3.new(m[1],m[2],m[3]),Vector3.new(dx*cfg.TriggerDistance,dy*cfg.TriggerDistance,dz*cfg.TriggerDistance)) end)
+    if not rayOK then TR.rayErrors=TR.rayErrors+1;TR.cancel("raycast unavailable / failed");return end
+    if not hit then TR.cancel("crosshair ray hit no body");return end
+    local instance=get(hit,"Instance");local position=xyz(get(hit,"Position"))
+    if not instance or not position then TR.cancel("unreadable ray result");return end
+    local ox,oy,oz=position[1]-m[1],position[2]-m[2],position[3]-m[3]
+    local along=(ox*dx+oy*dy+oz*dz)/norm
+    local px,py,pz=ox-dx*along/norm,oy-dy*along/norm,oz-dz*along/norm
+    if along<0 or along>cfg.TriggerDistance+.25 or px*px+py*py+pz*pz>.25 then TR.cancel("ray result outside centre segment");return end
+    local target,partName,match=TR.resolve(instance,position)
+    TR.noteHit(instance,position,along,match,target,partName)
+    if not target then TR.blocked=TR.blocked+1;TR.cancel("first hit rejected: "..match);return end
+    if match=="cached part" then TR.directMatches=TR.directMatches+1
+    elseif match=="current direct body part" then TR.refreshedMatches=TR.refreshedMatches+1
+    elseif match=="root hit inside torso" then TR.rootMatches=TR.rootMatches+1 end
+    if cfg.TriggerPoint=="Head" and partName~="head" then TR.cancel("waiting for Head");return end
+    if cfg.TriggerPoint=="Torso" and partName~="uppertorso" and partName~="lowertorso" then TR.cancel("waiting for Torso");return end
+    local char=get(player,"Character");local hp=attribute(player,"Health")
+    if not char or not liveParent(char) or attribute(player,"Dead")~=false or not finite(hp) or hp<=0 or attribute(player,"IsSpectating")==true then TR.cancel("local not live");return end
+    local bh=attribute(char,"Health")
+    if attribute(char,"Dead")==true or (finite(bh) and bh<=0) then TR.cancel("local body dead");return end
+    local raw=attribute(player,"CurrentEquipped");if raw==nil then raw=attribute(char,"CurrentEquipped") end
+    local weapon=P.prefix(raw)
+    local name=weapon.Name;local profile=name and P.Profiles[name]
+    if not profile or profile.ProfileAimAllowed~=true or not finite(weapon.Rounds) or weapon.Rounds<=0 or type(weapon.Identifier)~="string" then TR.cancel("loaded allowed firearm unresolved");return end
+    if name~=P.Current then TR.cancel("weapon profile changing");return end
+    local localTeam=readLocalTeam(player);if not localTeam then TR.cancel("local team unavailable");return end
+    if attribute(player,"IsReloading")==true or attribute(char,"IsReloading")==true then TR.cancel("reloading");return end
+    local blocked=modelState(target)
+    if blocked or not target.team or target.team==localTeam then TR.cancel(blocked or "teammate / unknown team");return end
+    local context=tostring(id(char))..":"..tostring(id(cam))..":"..weapon.Identifier..":"..localTeam..":"..tostring(target.key)
+    if TR.candidate~=context then TR.candidate=context;TR.since=clock();TR.acquisitions=TR.acquisitions+1 end
+    if clock()-(TR.since or clock())<cfg.TriggerDelay then TR.setGate("reaction delay");return end
+    if clock()<(TR.nextClick or 0) then TR.setGate("click cooldown");return end
+    -- Reject a stale ray or a context/input change immediately before clicking.
+    if clock()-before>.08 then TR.cancel("ray/state checks too slow; no click");return end
+    local focusOK,focus=pcall(isrbxactive);local bindOK,bind=pcall(iskeypressed,cfg.TriggerHoldKey)
+    local finalRaw=attribute(player,"CurrentEquipped");if finalRaw==nil then finalRaw=attribute(char,"CurrentEquipped") end
+    local wh=P.prefix(finalRaw);local health=attribute(player,"Health")
+    if not C.Running or _G.BloxStrikeClient~=C or not cfg.TriggerEnabled or C.MenuOpen or not C.Enabled or cfg.AimPreview or
+        not focusOK or focus~=true or not bindOK or bind~=true or R.button(1)~=false or
+        not same(get(player,"Character"),char) or not same(get(world,"CurrentCamera"),cam) or not liveParent(char) or
+        attribute(player,"Dead")~=false or attribute(player,"IsSpectating")==true or not finite(health) or health<=0 or
+        wh.Name~=name or wh.Identifier~=weapon.Identifier or not finite(wh.Rounds) or wh.Rounds<=0 or readLocalTeam(player)~=localTeam or
+        attribute(player,"IsReloading")==true or attribute(char,"IsReloading")==true or
+        not liveParent(target.model) or not same(get(instance,"Parent"),target.model) or (target.owner and not same(get(target.owner,"Character"),target.model)) then TR.cancel("state changed before click");return end
+    local finalTarget,finalPart=TR.resolve(instance,position)
+    if finalTarget~=target or finalPart~=partName then TR.cancel("hit body changed before click");return end
+    local th=attribute(target.model,"Health");local td=attribute(target.model,"Dead")
+    local currentBodyHealth=attribute(char,"Health")
+    if attribute(char,"Dead")==true or (finite(currentBodyHealth) and currentBodyHealth<=0) then TR.cancel("local body no longer alive");return end
+    if not finite(th) and target.owner then th=attribute(target.owner,"Health") end
+    if td==nil and target.owner then td=attribute(target.owner,"Dead") end
+    if not finite(th) or th<=0 or td~=false then TR.cancel("target no longer alive");return end
+    local mt=teamName(attribute(target.model,"Team"));local pt=target.owner and readLocalTeam(target.owner)
+    if (pt and mt and pt~=mt) or not (pt or mt) or (pt or mt)==localTeam then TR.cancel("target team changed");return end
+    if target.owner then
+        local ph=attribute(target.owner,"Health");local pd=attribute(target.owner,"Dead")
+        if pd==true or (finite(ph) and ph<=0) then TR.cancel("target owner no longer alive");return end
+    end
+    if clock()-before>.12 then TR.cancel("final checks too slow; no click");return end
+    if not TR.routed or clock()>=(TR.routeUntil or 0) then
+        if type(setrobloxinput)=="function" then
+            local routed,result=pcall(setrobloxinput,true)
+            if not routed or result==false then TR.cancel("input routing failed");return end
+        end
+        TR.routed=true;TR.routeUntil=clock()+.75
+    end
+    TR.calls=TR.calls+1;local clicked,result=pcall(mouse1click)
+    if not clicked or result==false then TR.failures=TR.failures+1;TR.fault="click output failed; trigger OFF";cfg.TriggerEnabled=false;TR.cancel(TR.fault);return end
+    TR.lastClick={at=clock(),char=char,camera=cam,name=name,identifier=weapon.Identifier}
+    TR.nextClick=clock()+cfg.TriggerInterval;TR.setGate("clicked confirmed enemy body")
+    TR.history[#TR.history+1]=string.format("+%.3fs %s %s",clock()-started,target.name,partName)
+    if #TR.history>12 then table.remove(TR.history,1) end
+end
+
+-- Repeated Space edges; movement keys are never read, pressed or released here.
+local H={owned=false,gate="OFF",presses=0,releases=0,releaseFailures=0,pressFailures=0,
+    routes=0,heldSamples=0,upSamples=0,releaseAt=0,nextPress=0,sampleAfter=0,
+    requireRelease=true,upSince=nil,context=nil,routed=false,lastTick=nil,fault=nil,
+    autoRearms=0,readyAt=0,routeUntil=0}
+C.Hop=H
+-- Bounded observational telemetry. Key reads can include injected state.
+H.gates={};H.chords={};H.history={};H.chord="unobserved";H.diagNext=0
+H.jumpTrue=0;H.jumpFalse=0;H.jumpUnknown=0;H.jumpTransitions=0
+H.pulseMsTotal=0;H.pulseMsMax=0;H.pulseTimingCount=0;H.gapMsTotal=0;H.gapMsMax=0;H.gapCount=0
+H.upAfterRelease=0;H.lastReleaseSample=nil;H.lifecycleChecks=0
+function H.log(text)
+    H.history[#H.history+1]=string.format("+%.3fs %s",clock()-started,text)
+    if #H.history>32 then table.remove(H.history,1) end
+end
+function H.observe(now,space,force)
+    -- Sample chords/jump signal only during a hold or shortly after a pulse.
+    if not force and (now<H.diagNext or (not space and not H.owned and (not H.lastPulseAt or now-H.lastPulseAt>.35))) then return end
+    H.diagNext=now+.10
+    local chord=""
+    for _,v in ipairs({{0x57,"W"},{0x41,"A"},{0x53,"S"},{0x44,"D"}}) do
+        local ok,held=pcall(iskeypressed,v[1])
+        if not ok or type(held)~="boolean" then chord=chord.."?"
+        elseif held then chord=chord..v[2] end
+    end
+    if chord=="" then chord="Still" end
+    if chord~=H.chord then H.log("observed keys="..chord.." Space="..tostring(space));H.chord=chord end
+    local c=H.chords[chord] or {held=0,up=0,presses=0,jumpTrue=0,jumpFalse=0,jumpUnknown=0}
+    H.chords[chord]=c
+    if space then c.held=c.held+1 else c.up=c.up+1 end
+    local jumping=attribute(player,"IsJumping")
+    if type(jumping)=="boolean" then
+        if H.lastJump~=nil and jumping~=H.lastJump then
+            H.jumpTransitions=H.jumpTransitions+1;H.log("observed IsJumping="..tostring(jumping).." keys="..chord)
+        end
+        H.lastJump=jumping
+        if jumping then H.jumpTrue=H.jumpTrue+1;c.jumpTrue=c.jumpTrue+1
+        else H.jumpFalse=H.jumpFalse+1;c.jumpFalse=c.jumpFalse+1 end
+    else H.jumpUnknown=H.jumpUnknown+1;c.jumpUnknown=c.jumpUnknown+1 end
+end
+function H.appendReport(rows)
+    rows[#rows+1]="-- SPACE HOP CHORD / TIMING DIAGNOSTICS --"
+    rows[#rows+1]=string.format("Actual pulse down avg/max=%.2f/%.2fms samples=%d press-gap avg/max=%.2f/%.2fms samples=%d up-after-release observations=%d forced life checks=%d",
+        H.pulseMsTotal/math.max(1,H.pulseTimingCount),H.pulseMsMax,H.pulseTimingCount,
+        H.gapMsTotal/math.max(1,H.gapCount),H.gapMsMax,H.gapCount,H.upAfterRelease,H.lifecycleChecks)
+    rows[#rows+1]="Observed Player.IsJumping true/false/unknown="..H.jumpTrue.."/"..H.jumpFalse.."/"..H.jumpUnknown.." transitions="..H.jumpTransitions
+    rows[#rows+1]="Key polling may include synthetic state. IsJumping is observational, not grounded/contact proof. Pulse/chord counts do not prove successful in-game jumps."
+    local names={};for name in pairs(H.chords) do names[#names+1]=name end;table.sort(names)
+    for _,name in ipairs(names) do local c=H.chords[name]
+        rows[#rows+1]=string.format("HOP CHORD %s Space held/up=%d/%d pulses=%d jump true/false/unknown=%d/%d/%d",name,c.held,c.up,c.presses,c.jumpTrue,c.jumpFalse,c.jumpUnknown)
+    end
+    for reason,count in pairs(H.gates) do rows[#rows+1]="HOP GATE "..reason.."="..count end
+    rows[#rows+1]="-- RECENT HOP OBSERVATIONS (bounded) --"
+    for _,line in ipairs(H.history) do rows[#rows+1]=line end
+end
+
+function H.release(reason)
+    if not H.owned then return true end
+    local ok,value=pcall(keyrelease,0x20);H.releases=H.releases+1
+    if ok and value~=false then
+        local now=clock()
+        if H.downAt then
+            local elapsed=math.max(0,now-H.downAt)*1000
+            H.pulseMsTotal=H.pulseMsTotal+elapsed;H.pulseMsMax=math.max(H.pulseMsMax,elapsed);H.pulseTimingCount=H.pulseTimingCount+1
+        end
+        H.downAt=nil;H.lastReleaseSample=now
+        H.owned=false;H.sampleAfter=now+.02;H.gate=reason or "released Space";return true
+    end
+    H.releaseFailures=H.releaseFailures+1;H.fault="Space release failed; cleanup retry pending";cfg.SpaceHop=false;H.gate=H.fault;return false
+end
+function H.cleanup(reason)
+    H.requireRelease=true;H.upSince=nil;H.routed=false;H.routeUntil=0
+    for _=1,3 do if H.release(reason) then break end end
+end
+function H.interrupt(reason,automatic)
+    H.release(reason);H.gate=H.fault or reason;H.upSince=nil
+    if automatic then
+        H.requireRelease=false
+    else H.requireRelease=true end
+end
+function H.transition(reason,now)
+    H.interrupt(reason,true);H.context=nil;H.routed=false;H.routeUntil=0;H.lastJump=nil
+    H.readyAt=now+.10;H.nextPress=H.readyAt;H.autoRearms=H.autoRearms+1
+end
+function H.update(now)
+    if H.owned and (not cfg.SpaceHop or now>=H.releaseAt) then if not H.release("pulse ended") then return end end
+    if not cfg.SpaceHop then H.gate=H.fault or "OFF";H.requireRelease=true;H.upSince=nil;H.lastTick=now;H.context=nil;return end
+    if H.fault then H.release(H.fault);return end
+    if type(keypress)~="function" or type(keyrelease)~="function" or type(iskeypressed)~="function" or type(isrbxactive)~="function" then
+        cfg.SpaceHop=false;H.interrupt("Space input/focus API unavailable");return
+    end
+    local dt=H.lastTick and now-H.lastTick or 0;H.lastTick=now
+    if dt>.15 then H.interrupt("frame stall; hopping will resume",true);H.readyAt=now+.10;H.routed=false;return end
+    local active,focused=pcall(isrbxactive)
+    if not active or focused~=true then H.interrupt("Roblox not focused");H.routed=false;return end
+    if not C.Enabled or C.MenuOpen or A.capture then H.interrupt("client paused / menu open");return end
+    local good,down=pcall(iskeypressed,0x20)
+    if not good or type(down)~="boolean" then H.interrupt("Space held-state unavailable");return end
+    if down then H.heldSamples=H.heldSamples+1 else H.upSamples=H.upSamples+1 end
+    H.observe(now,down)
+    if H.owned then if not down then H.release("Space released") end;return end
+    if H.lastReleaseSample and now>=H.sampleAfter then
+        if not down then H.upAfterRelease=H.upAfterRelease+1 end
+        H.lastReleaseSample=nil
+    end
+    if now<H.sampleAfter or now<H.readyAt then return end
+    -- Menu/focus interruptions still require an observed up. Life/stall changes
+    -- automatically rearm, including while W/A/S/D were already being held.
+    if H.requireRelease then
+        if down then H.upSince=nil;H.gate="release Space once after menu/focus change"
+        else
+            H.upSince=H.upSince or now
+            if now-H.upSince>=.12 then H.requireRelease=false;H.gate="ready: hold Space" end
+        end
+        return
+    end
+    if not down then H.gate="hold Space (standing or moving)";return end
+    if now<H.nextPress then H.gate="waiting for next Space pulse";return end
+    local life=C.InputLifecycle
+    local sample=life and life.step(clock(),true)
+    H.lifecycleChecks=H.lifecycleChecks+1
+    if not sample or sample.live~=true then
+        H.interrupt("local character not live",true);H.context=nil;H.routed=false;return
+    end
+    local context=id(sample.char)
+    if context~=H.context then
+        H.context=context;H.routed=false;H.routeUntil=0
+        H.interrupt("character ready; hopping will resume",true)
+        H.readyAt=math.max(H.readyAt,(sample.changedAt or now)+.10);H.autoRearms=H.autoRearms+1
+    end
+    if clock()<H.readyAt then return end
+    -- A slow native life read must not turn an old held sample into output.
+    local currentTime=clock()
+    if currentTime-now>.08 then H.gate="slow life read; resample Space";return end
+    local focusOK,currentFocus=pcall(isrbxactive)
+    local keyOK,currentDown=pcall(iskeypressed,0x20)
+    if not focusOK or currentFocus~=true then H.interrupt("Roblox not focused");return end
+    if not keyOK or currentDown~=true then H.gate="Space released before pulse";return end
+    if not C.Running or _G.BloxStrikeClient~=C or not cfg.SpaceHop or not C.Enabled or C.MenuOpen or A.capture then H.interrupt("client paused / menu open");return end
+    H.observe(currentTime,true,true)
+    if (not H.routed or now>=H.routeUntil) and type(setrobloxinput)=="function" then
+        H.routes=H.routes+1;local routed,result=pcall(setrobloxinput,true)
+        if not routed or result==false then cfg.SpaceHop=false;H.interrupt("Space input routing failed");return end
+        H.routed=true;H.routeUntil=now+.75
+    end
+    now=clock()
+    if H.lastPulseAt then
+        local gap=math.max(0,now-H.lastPulseAt)*1000
+        H.gapMsTotal=H.gapMsTotal+gap;H.gapMsMax=math.max(H.gapMsMax,gap);H.gapCount=H.gapCount+1
+    end
+    H.lastPulseAt=now;H.downAt=now
+    local chord=H.chords[H.chord];if chord then chord.presses=chord.presses+1 end
+    H.log("pulse keys="..H.chord.." Space observed=true")
+    H.owned=true;H.releaseAt=now+.025;H.nextPress=now+.08
+    local pressed,value=pcall(keypress,0x20);H.presses=H.presses+1
+    if not pressed or value==false then
+        H.pressFailures=H.pressFailures+1;cfg.SpaceHop=false;H.fault="Space press failed; hop OFF";H.cleanup(H.fault);return
+    end
+    H.gate="Space pulse; normal movement keys remain yours"
+end
+
+function H.step(now)
+    H.update(now)
+    H.gates[H.gate]=(H.gates[H.gate] or 0)+1
+    if H.lastGate~=H.gate then H.log("gate="..str(H.gate,100));H.lastGate=H.gate end
+end
+-- Observe life transitions independently of aim holds and recoil baselines.
+-- Enabled features stay enabled; obsolete samples/output are discarded.
+local L={epochs=0,resumes=0,reason="starting",last=nil,nextCheck=0,checks=0,forced=0}
+C.InputLifecycle=L
+function L.step(now,force)
+    if not player or (not cfg.SpaceHop and not cfg.RCSEnabled) then return end
+    if not force and now<L.nextCheck then return L.last end
+    L.nextCheck=now+.10;L.checks=L.checks+1;if force then L.forced=L.forced+1 end
+    local char=get(player,"Character")
+    local cam=world and get(world,"CurrentCamera")
+    local hp=attribute(player,"Health");local dead=attribute(player,"Dead")
+    local spec=attribute(player,"IsSpectating")
+    local bh=attribute(char,"Health");local bd=attribute(char,"Dead")
+    local reason
+    if not char or not liveParent(char) then reason="local character not live"
+    elseif spec==true then reason="local spectator"
+    elseif dead~=false or not finite(hp) or hp<=0 then reason="local alive state unconfirmed/dead"
+    elseif bd==true or (finite(bh) and bh<=0) then reason="local body dead" end
+    local live=reason==nil
+    local old=L.last
+    -- Both nil and wrapper references with matching native Addresses are equal.
+    local changed=not old or not ((old.char==nil and char==nil) or same(old.char,char)) or
+        not ((old.cam==nil and cam==nil) or same(old.cam,cam)) or old.live~=live
+    if changed then L.changedAt=now end
+    L.last={char=char,cam=cam,live=live,changedAt=L.changedAt,observedAt=now};L.reason=reason or "alive"
+    localCharacter=char;C.LocalAimBlock=reason
+    if changed then
+        L.epochs=L.epochs+1
+        if live and old and not old.live then L.resumes=L.resumes+1 end
+        P.nextPoll=0;P.modeNext=0;nextLocalState=0
+        R.cancel(live and "life / camera ready; RCS rearming" or L.reason)
+        R.routingReady=false;R.routeUntil=0
+        if old then resetAim("local life / camera changed") end
+        if C.Hop then C.Hop.transition(live and "respawn ready" or L.reason,now) end
+        event("Input life epoch="..L.epochs.." "..L.reason)
+    end
+    return L.last
+end
+
 local function step(now)
     controls(now); if not C.Running then return end
+    A.outputSampleAt=nil
+    L.step(clock())
+    H.step(clock())
     if now-lastRefresh>=cfg.CacheInterval then
         lastRefresh=now; local before=clock(); stats.refreshes=stats.refreshes+1
         local ok,err=pcall(refresh)
         local cost=clock()-before; stats.cacheTotal=stats.cacheTotal+cost; stats.cacheMax=math.max(stats.cacheMax,cost)
         if not ok then stats.cacheFailures=stats.cacheFailures+1; entries={}; stats.cached=0; C.State="waiting: "..str(err); hideAll() end
+    end
+    if world then
+        local cacheOK,cacheError=pcall(maintainCache,clock())
+        if not cacheOK then stats.cacheFailures=stats.cacheFailures+1;entries={};C.Entries=entries;stats.cached=0;event("Cache slice failed: "..str(cacheError));hideAll() end
+        observePVS(clock())
     end
     P.poll(now)
     if not world then R.cancel("workspace unavailable"); hideAll(); aimIdle("workspace unavailable"); return end
@@ -1945,7 +2730,12 @@ local function step(now)
     local vw,vh=xy(get(camera,"ViewportSize")); local camPos=xyz(get(camera,"Position"))
     if not vw or vw<=0 or vh<=0 or not camPos then C.State="waiting for camera"; R.cancel("camera unavailable"); hideAll(); aimIdle("camera unavailable"); return end
     if not C.Enabled or not root then R.cancel("client disabled / body folder unavailable"); hideAll(); aimIdle("client disabled / body folder unavailable"); return end
-    P.updateMode(clock());V.projectFrame(clock(),camPos,vw,vh)
+    P.updateMode(clock());C.AimCameraOrigin=camPos
+    if cfg.AimInputFirst then
+        local inputNow=clock();W.frameCalls=0;R.begin(inputNow);aimStep(clock(),vw,vh);R.flush();TR.step(clock())
+        A.inputFirstFrames=(A.inputFirstFrames or 0)+1
+    end
+    V.projectFrame(clock(),camPos,vw,vh)
     C.Viewport={vw,vh}; C.State="tracking"; local visible=0;V.full=0;V.reduced=0
     local geometryStarted=clock()
     for _,e in ipairs(entries) do
@@ -1954,10 +2744,9 @@ local function step(now)
         if not good then e.state="geometry read error";stats.stale=stats.stale+1 end
     end
     V.geometryMs=(V.geometryMs or 0)+(clock()-geometryStarted)*1000
-    local inputNow=clock()
-    R.begin(inputNow)
-    aimStep(inputNow,vw,vh)
-    R.flush()
+    if not cfg.AimInputFirst then
+        local inputNow=clock();R.begin(inputNow);W.frameCalls=0;aimStep(inputNow,vw,vh);R.flush();TR.step(clock())
+    end
     local drawStarted=clock()
     for i,e in ipairs(entries) do
         local b=e.renderBox
@@ -2027,10 +2816,11 @@ local ok,err=pcall(function()
 end)
 if not ok then C.State="startup error: "..str(err); print("BLOXSTRIKE CLIENT: "..C.State); removeAll(); return end
 C.LoadSettings(true)
+cfg.SpaceHop=false;cfg.TriggerEnabled=false
 C.Running=true
-print("BLOXSTRIKE CLIENT 1.6.4 TEST ready. RIGHT SHIFT opens the menu. Click VISUALS / AIM / PROFILES / TRACK / RCS tabs. Feature toggles, reports and Stop are button-only. Aim and RCS start OFF; default aim hold is RMB.")
-print("Aim has NO wall/visibility check. Hold mode waits for its first selected point while held, then locks that body until release/loss. Optional Automatic mode needs no hold and can reacquire after loss. No firing is generated.")
-print("Current live rigs only. Team/alive/presentation attributes are required. RCS is an experimental adjustable pulse/build-up test. Aim response includes bounded motion compensation. Bunnyhop and auto-strafe are not implemented.")
+print("BLOXSTRIKE CLIENT 1.6.10 TEST ready. RIGHT SHIFT opens the menu. Click VISUALS / AIM / PROFILES / TRACK / RCS tabs. Feature toggles, reports and Stop are button-only. Aim and RCS start OFF; default aim hold is RMB.")
+print("Aim wall check is optional and experimental; it starts OFF unless saved. With it OFF, aim can track through walls. Hold mode waits for its first selected point while held, then locks that body until release/loss. Optional Automatic mode needs no hold and can reacquire after loss. Trigger starts OFF and has its own hold bind.")
+print("Current live rigs only. ESP can optionally include explicit hidden presentation on current live rigs; aim requires presented rigs. RCS uses experimental sustained per-ammo correction; no automatic upward return. Aim response includes bounded motion compensation. Hold Space hopping is an optional test under Profiles. Auto-strafe is not implemented.")
 while C.Running do
     if _G.BloxStrikeClient~=C then C.Stop("replaced"); break end
     local begin=clock()
@@ -2039,7 +2829,7 @@ while C.Running do
     if not C.Running then break end
     local cost=math.max(0,clock()-begin)
     stats.frames=stats.frames+1; stats.updateTotal=stats.updateTotal+cost; stats.updateMax=math.max(stats.updateMax,cost)
-    if not success then stats.frameErrors=stats.frameErrors+1; event("Frame failed: "..str(problem)); R.cancel("frame error"); hideAll(); aimIdle("frame error") end
+    if not success then stats.frameErrors=stats.frameErrors+1; event("Frame failed: "..str(problem)); R.cancel("frame error"); H.cleanup("frame error"); hideAll(); aimIdle("frame error") end
     if cfg.ReportInterval>0 and begin-lastReport>=cfg.ReportInterval then report(false); lastReport=begin end
     local slept,sleepError=pcall(sleeper,math.max(.001,1/cfg.UpdateHz-cost))
     if not slept then C.Stop("scheduler failure: "..str(sleepError)); break end
